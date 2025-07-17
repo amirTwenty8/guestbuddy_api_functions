@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "6e7e7e7e-7e7e-7e7e-7e7e-7e7e7e7e7e7e",
 		"name": "GuestBuddy API Tests",
-		"description": "Tests for GuestBuddy API Functions",
+		"description": "Tests for GuestBuddy API Functions - Now uses document IDs for better data integrity",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -18,7 +18,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n    \"data\": {\n        \"eventId\": \"test-event-{{$timestamp}}\",\n        \"eventName\": \"Test Event\",\n        \"startDateTime\": \"{{$isoTimestamp}}\",\n        \"endDateTime\": \"{{$isoTimestamp}}\",\n        \"companyId\": \"YOUR_COMPANY_ID\",\n        \"tableLayouts\": [\"layout1\"],\n        \"categories\": [\"VIP\", \"Regular\"],\n        \"clubCardIds\": [\"card1\", \"card2\"],\n        \"eventGenre\": [\"Party\"]\n    }\n}"
+					"raw": "{\n    \"data\": {\n        \"eventId\": \"test-event-{{$timestamp}}\",\n        \"eventName\": \"Test Event\",\n        \"startDateTime\": \"{{$isoTimestamp}}\",\n        \"endDateTime\": \"{{$isoTimestamp}}\",\n        \"companyId\": \"YOUR_COMPANY_ID\",\n        \"tableLayouts\": [\"layout_document_id_1\", \"layout_document_id_2\"],\n        \"categories\": [\"category_document_id_1\", \"category_document_id_2\"],\n        \"clubCardIds\": [\"clubcard_document_id_1\", \"clubcard_document_id_2\"],\n        \"eventGenre\": [\"genre_document_id_1\", \"genre_document_id_2\"]\n    }\n}"
 				},
 				"url": {
 					"raw": "https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/createEvent",
@@ -32,7 +32,7 @@
 						"createEvent"
 					]
 				},
-				"description": "Create a new event"
+				"description": "Create a new event with document IDs for tableLayouts, categories, clubCardIds, and eventGenre. The function will fetch the names from these documents and store both IDs and names in the event."
 			},
 			"response": []
 		}

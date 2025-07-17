@@ -71,15 +71,18 @@ The response will contain an `idToken` field with your authentication token.
     "startDateTime": "2023-08-01T18:00:00Z",
     "endDateTime": "2023-08-01T23:00:00Z",
     "companyId": "YOUR_COMPANY_ID",
-    "tableLayouts": ["layout1"],
-    "categories": ["VIP", "Regular"],
-    "clubCardIds": ["card1", "card2"],
-    "eventGenre": ["Party"]
+    "tableLayouts": ["layout_document_id_1", "layout_document_id_2"],
+    "categories": ["category_document_id_1", "category_document_id_2"],
+    "clubCardIds": ["clubcard_document_id_1", "clubcard_document_id_2"],
+    "eventGenre": ["genre_document_id_1", "genre_document_id_2"]
   }
 }
 ```
 
-> **Important**: Replace `YOUR_COMPANY_ID` with a valid company ID from your Firestore database. Also ensure that the layouts you reference in `tableLayouts` exist in your database.
+> **Important**: 
+> - Replace `YOUR_COMPANY_ID` with a valid company ID from your Firestore database
+> - All IDs in `tableLayouts`, `categories`, `clubCardIds`, and `eventGenre` must be valid document IDs from their respective collections
+> - The function will fetch the names from these documents and store both IDs and names in the event
 
 ### Expected Response
 
@@ -89,11 +92,51 @@ The response will contain an `idToken` field with your authentication token.
     "success": true,
     "message": "Event created successfully",
     "data": {
-      "eventId": "test-event-123"
+      "eventId": "test-event-123",
+      "tableLayouts": [
+        {"id": "layout_document_id_1", "name": "Layout Name 1"},
+        {"id": "layout_document_id_2", "name": "Layout Name 2"}
+      ],
+      "categories": [
+        {"id": "category_document_id_1", "name": "VIP"},
+        {"id": "category_document_id_2", "name": "Regular"}
+      ],
+      "clubCardIds": [
+        {"id": "clubcard_document_id_1", "name": "Gold Card"},
+        {"id": "clubcard_document_id_2", "name": "Silver Card"}
+      ],
+      "eventGenre": [
+        {"id": "genre_document_id_1", "name": "Party"},
+        {"id": "genre_document_id_2", "name": "Concert"}
+      ]
     }
   }
 }
 ```
+
+## Data Structure Requirements
+
+The function expects the following Firestore collections to exist under each company:
+
+### Table Layouts
+- **Collection**: `companies/{companyId}/layouts`
+- **Document Structure**: Must have a `name` field
+- **Example**: `{ "name": "VIP Section", "items": [...] }`
+
+### Categories
+- **Collection**: `companies/{companyId}/categories`
+- **Document Structure**: Must have a `name` field
+- **Example**: `{ "name": "VIP", "description": "VIP category" }`
+
+### Club Cards
+- **Collection**: `companies/{companyId}/clubCards`
+- **Document Structure**: Must have a `name` field
+- **Example**: `{ "name": "Gold Card", "benefits": [...] }`
+
+### Event Genres
+- **Collection**: `companies/{companyId}/genres`
+- **Document Structure**: Must have a `name` field
+- **Example**: `{ "name": "Party", "description": "Party events" }`
 
 ## Troubleshooting
 
@@ -109,7 +152,8 @@ The response will contain an `idToken` field with your authentication token.
 
 3. **Not Found Errors**
    - Ensure the company ID exists in your Firestore database
-   - Ensure the layout names exist in your Firestore database
+   - Ensure all referenced document IDs exist in their respective collections
+   - Check that the documents have a `name` field
 
 4. **CORS Issues**
    - If testing from a browser, you might encounter CORS issues

@@ -69,16 +69,37 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       final endDateTime = startDateTime.add(const Duration(hours: 5));
       
       // Call the function with the event data
+      // Note: All IDs below should be valid document IDs from your Firestore collections
       final result = await callable.call({
         'eventId': eventId,
         'eventName': _eventNameController.text.trim(),
         'startDateTime': startDateTime.toIso8601String(),
         'endDateTime': endDateTime.toIso8601String(),
         'companyId': _companyIdController.text.trim(),
-        'tableLayouts': ['layout1'], // Replace with actual layouts
-        'categories': ['VIP', 'Regular'],
-        'clubCardIds': [],
-        'eventGenre': ['Party'],
+        
+        // Table Layout IDs (document IDs from companies/{companyId}/layouts collection)
+        'tableLayouts': [
+          'layout_document_id_1', // Replace with actual layout document ID
+          'layout_document_id_2', // Replace with actual layout document ID
+        ],
+        
+        // Category IDs (document IDs from companies/{companyId}/categories collection)
+        'categories': [
+          'category_document_id_1', // Replace with actual category document ID
+          'category_document_id_2', // Replace with actual category document ID
+        ],
+        
+        // Club Card IDs (document IDs from companies/{companyId}/clubCards collection)
+        'clubCardIds': [
+          'clubcard_document_id_1', // Replace with actual club card document ID
+          'clubcard_document_id_2', // Replace with actual club card document ID
+        ],
+        
+        // Event Genre IDs (document IDs from companies/{companyId}/genres collection)
+        'eventGenre': [
+          'genre_document_id_1', // Replace with actual genre document ID
+          'genre_document_id_2', // Replace with actual genre document ID
+        ],
       });
       
       setState(() {
@@ -86,6 +107,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
       });
       
       print('Function result: ${result.data}');
+      
+      // The response will include both IDs and names for all the referenced items
+      if (result.data['data'] != null) {
+        print('Table Layouts: ${result.data['data']['tableLayouts']}');
+        print('Categories: ${result.data['data']['categories']}');
+        print('Club Cards: ${result.data['data']['clubCardIds']}');
+        print('Event Genres: ${result.data['data']['eventGenre']}');
+      }
     } catch (e) {
       setState(() {
         _resultMessage = 'Error creating event: ${e.toString()}';

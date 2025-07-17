@@ -13,10 +13,10 @@ const createEventSchema = Joi.object({
   startDateTime: Joi.date().iso().required(),
   endDateTime: Joi.date().iso().required(),
   companyId: Joi.string().required(),
-  tableLayouts: Joi.array().items(Joi.string()).optional().default([]),
-  categories: Joi.array().items(Joi.string()).optional().default([]),
-  clubCardIds: Joi.array().items(Joi.string()).optional().default([]),
-  eventGenre: Joi.array().items(Joi.string()).optional().default([]),
+  tableLayouts: Joi.array().items(Joi.string()).optional().default([]), // Now expects layout IDs
+  categories: Joi.array().items(Joi.string()).optional().default([]), // Now expects category IDs
+  clubCardIds: Joi.array().items(Joi.string()).optional().default([]), // Already expects IDs
+  eventGenre: Joi.array().items(Joi.string()).optional().default([]), // Now expects genre IDs
 });
 
 // Type definitions
@@ -36,6 +36,11 @@ interface LayoutData {
   [key: string]: any; // Allow other properties
 }
 
+interface FetchedData {
+  id: string;
+  name: string;
+}
+
 /**
  * Create a new event with all related data
  * This function handles:
@@ -48,6 +53,7 @@ interface LayoutData {
  * All operations are performed in a single transaction for data consistency
  * 
  * Optional fields: tableLayouts, categories, clubCardIds, eventGenre
+ * Now accepts IDs instead of names for better data integrity
  */
 export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
   try {
@@ -100,17 +106,130 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
     const startDate = new Date(startDateTime);
     const endDate = new Date(endDateTime);
     
-    // Prepare event data with default values to avoid undefined fields
+    // Fetch data for all IDs before the transaction
+    const fetchedData: {
+      tableLayouts: FetchedData[];
+      categories: FetchedData[];
+      clubCardIds: FetchedData[];
+      eventGenre: FetchedData[];
+    } = {
+      tableLayouts: [],
+      categories: [],
+      clubCardIds: [],
+      eventGenre: [],
+    };
+
+    // Fetch table layouts data
+    if (tableLayouts && tableLayouts.length > 0) {
+      for (const layoutId of tableLayouts) {
+        const layoutDoc = await db
+          .collection('companies')
+          .doc(companyId)
+          .collection('layouts')
+          .doc(layoutId)
+          .get();
+        
+        if (layoutDoc.exists) {
+          const layoutData = layoutDoc.data();
+          fetchedData.tableLayouts.push({
+            id: layoutId,
+            name: layoutData?.name || layoutId,
+          });
+        } else {
+          return {
+            success: false,
+            error: `Table layout with ID ${layoutId} not found`,
+          };
+        }
+      }
+    }
+
+    // Fetch categories data
+    if (categories && categories.length > 0) {
+      for (const categoryId of categories) {
+        const categoryDoc = await db
+          .collection('companies')
+          .doc(companyId)
+          .collection('categories')
+          .doc(categoryId)
+          .get();
+        
+        if (categoryDoc.exists) {
+          const categoryData = categoryDoc.data();
+          fetchedData.categories.push({
+            id: categoryId,
+            name: categoryData?.name || categoryId,
+          });
+        } else {
+          return {
+            success: false,
+            error: `Category with ID ${categoryId} not found`,
+          };
+        }
+      }
+    }
+
+    // Fetch club card data
+    if (clubCardIds && clubCardIds.length > 0) {
+      for (const clubCardId of clubCardIds) {
+        const clubCardDoc = await db
+          .collection('companies')
+          .doc(companyId)
+          .collection('clubCards')
+          .doc(clubCardId)
+          .get();
+        
+        if (clubCardDoc.exists) {
+          const clubCardData = clubCardDoc.data();
+          fetchedData.clubCardIds.push({
+            id: clubCardId,
+            name: clubCardData?.name || clubCardId,
+          });
+        } else {
+          return {
+            success: false,
+            error: `Club card with ID ${clubCardId} not found`,
+          };
+        }
+      }
+    }
+
+    // Fetch event genre data
+    if (eventGenre && eventGenre.length > 0) {
+      for (const genreId of eventGenre) {
+        const genreDoc = await db
+          .collection('companies')
+          .doc(companyId)
+          .collection('genres')
+          .doc(genreId)
+          .get();
+        
+        if (genreDoc.exists) {
+          const genreData = genreDoc.data();
+          fetchedData.eventGenre.push({
+            id: genreId,
+            name: genreData?.name || genreId,
+          });
+        } else {
+          return {
+            success: false,
+            error: `Event genre with ID ${genreId} not found`,
+          };
+        }
+      }
+    }
+
+    // Prepare event data with both IDs and names
     const eventData = {
       id: eventId, // This will be the UUID
       eventName,
       startDateTime: startDate,
       endDateTime: endDate,
       companyId,
-      tableLayouts: tableLayouts || [],
-      categories: categories || [],
-      clubCardIds: clubCardIds || [],
-      eventGenre: eventGenre || [],
+      tableLayouts: fetchedData.tableLayouts,
+      categories: fetchedData.categories,
+      clubCardIds: fetchedData.clubCardIds,
+      eventGenre: fetchedData.eventGenre,
       createdBy: userId,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -118,21 +237,21 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
 
     // Fetch layout data for all layouts (only if tableLayouts are provided)
     const layoutsData: Record<string, LayoutData> = {};
-    if (tableLayouts && tableLayouts.length > 0) {
-      for (const layoutName of tableLayouts) {
+    if (fetchedData.tableLayouts.length > 0) {
+      for (const layout of fetchedData.tableLayouts) {
         const layoutSnapshot = await db
           .collection('companies')
           .doc(companyId)
           .collection('layouts')
-          .doc(layoutName)
+          .doc(layout.id)
           .get();
         
         if (layoutSnapshot.exists) {
-          layoutsData[layoutName] = layoutSnapshot.data() as LayoutData;
+          layoutsData[layout.id] = layoutSnapshot.data() as LayoutData;
         } else {
           return {
             success: false,
-            error: `Layout ${layoutName} not found`,
+            error: `Layout ${layout.name} (ID: ${layout.id}) not found`,
           };
         }
       }
@@ -163,9 +282,9 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
       let totalTableSpent = 0;
       
       // 2. Process each layout (only if tableLayouts are provided)
-      if (tableLayouts && tableLayouts.length > 0) {
-        for (const layoutName of tableLayouts) {
-          const layoutData = layoutsData[layoutName];
+      if (fetchedData.tableLayouts.length > 0) {
+        for (const layout of fetchedData.tableLayouts) {
+          const layoutData = layoutsData[layout.id];
           const items = layoutData?.items || [];
           
           if (items.length > 0) {
@@ -182,13 +301,14 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
               };
             });
             
-            // Create table_lists document for this layout
+            // Create table_lists document for this layout (use layout ID as document ID)
             const tableListsRef = eventRef
               .collection('table_lists')
-              .doc(layoutName);
+              .doc(layout.id);
             
             transaction.set(tableListsRef, {
               items: tablesWithLogs,
+              layoutName: layout.name, // Store the name for reference
               lastUpdated: FieldValue.serverTimestamp(),
             });
             
@@ -271,6 +391,10 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
       message: "Event created successfully",
       data: {
         eventId, // Return the generated UUID
+        tableLayouts: fetchedData.tableLayouts,
+        categories: fetchedData.categories,
+        clubCardIds: fetchedData.clubCardIds,
+        eventGenre: fetchedData.eventGenre,
       },
     };
   } catch (error) {
