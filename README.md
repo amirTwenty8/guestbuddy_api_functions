@@ -36,6 +36,7 @@ Authorization: Bearer <firebase-id-token>
 
 ### Auth API
 
+- **createAccount** - `createAccount`: Callable function to create a new user account with Firebase Auth and Firestore data
 - **Verify Token** - `verifyToken`: Callable function that verifies a Firebase ID token
 - **Revoke User Sessions** - `revokeUserSessions`: Callable function that revokes all refresh tokens for a user (admin only)
 

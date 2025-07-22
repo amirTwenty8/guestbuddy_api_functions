@@ -7,6 +7,36 @@
 	},
 	"item": [
 		{
+			"name": "Create Account",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"data\": {\n        \"firstName\": \"John\",\n        \"lastName\": \"Doe\",\n        \"email\": \"john.doe@example.com\",\n        \"phoneNumber\": \"+46732010328\",\n        \"birthDate\": \"1990-01-15\",\n        \"country\": \"Sweden\",\n        \"city\": \"Stockholm\",\n        \"password\": \"securePassword123\",\n        \"terms\": true\n    }\n}"
+				},
+				"url": {
+					"raw": "https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/createAccount",
+					"protocol": "https",
+					"host": [
+						"us-central1-guestbuddy-test-3b36d",
+						"cloudfunctions",
+						"net"
+					],
+					"path": [
+						"createAccount"
+					]
+				},
+				"description": "Create a new user account with Firebase Auth and save additional user data to Firestore. No authentication required."
+			},
+			"response": []
+		},
+		{
 			"name": "Create Event",
 			"request": {
 				"method": "POST",

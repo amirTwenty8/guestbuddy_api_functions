@@ -2,6 +2,11 @@
 
 This guide explains how to test the GuestBuddy API Functions using Postman.
 
+## Available Functions
+
+1. **createEvent** - Create a new event with table layouts, categories, club cards, and genres
+2. **createAccount** - Create a new user account with Firebase Auth and Firestore data
+
 ## Prerequisites
 
 1. [Postman](https://www.postman.com/downloads/) installed
@@ -113,6 +118,97 @@ The response will contain an `idToken` field with your authentication token.
   }
 }
 ```
+
+## Testing the createAccount Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/createAccount`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - **Note**: No authentication required for account creation
+
+### Request Body
+
+```json
+{
+  "data": {
+    "firstName": "John",
+    "lastName": "Doe",
+    "email": "john.doe@example.com",
+    "phoneNumber": "+46732010328",
+    "birthDate": "1990-01-15",
+    "country": "Sweden",
+    "city": "Stockholm",
+    "password": "securePassword123",
+    "terms": true
+  }
+}
+```
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Account created successfully",
+    "data": {
+      "userId": "rd9iei8OEYbqANWbgdyFGIVjAC23",
+      "email": "john.doe@example.com",
+      "displayName": "John Doe"
+    }
+  }
+}
+```
+
+### Validation Rules
+
+- **firstName**: Required, 1-50 characters
+- **lastName**: Required, 1-50 characters
+- **email**: Required, valid email format
+- **phoneNumber**: Required, E.164 format (e.g., +46732010328)
+- **birthDate**: Required, YYYY-MM-DD format, user must be at least 16 years old
+- **country**: Required, 1-100 characters
+- **city**: Required, 1-100 characters
+- **password**: Required, 8-128 characters
+- **terms**: Required, must be true
+
+### User Data Structure
+
+The function creates a user document in the `users` collection with the following structure:
+
+```json
+{
+  "businessMode": false,
+  "companyId": [],
+  "e164Number": "+46732010328",
+  "phoneNumber": "0732010328",
+  "userActive": true,
+  "userEmail": "john.doe@example.com",
+  "userFirstName": "John",
+  "userLastName": "Doe",
+  "birthDate": "1990-01-15",
+  "country": "Sweden",
+  "city": "Stockholm",
+  "terms": true,
+  "createdAt": "2025-01-20T10:30:00Z",
+  "updatedAt": "2025-01-20T10:30:00Z"
+}
+```
+
+### Phone Number Processing
+
+The function automatically processes phone numbers based on the selected country:
+
+- **e164Number**: Stores the full international format (e.g., "+46732010328")
+- **phoneNumber**: Stores the local format with "0" prefix (e.g., "0732010328")
+
+**Examples:**
+- Sweden (+46): "+46732010328" → "0732010328"
+- Germany (+49): "+49123456789" → "0123456789"
+- UK (+44): "+447123456789" → "07123456789"
 
 ## Data Structure Requirements
 
