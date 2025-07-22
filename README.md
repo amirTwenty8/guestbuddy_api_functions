@@ -58,6 +58,7 @@ Authorization: Bearer <firebase-id-token>
 ### Events API
 
 - **createEvent** - Callable function to create a new event with all related data (tables, guest lists, etc.)
+- **updateEvent** - Callable function to update an existing event with table layout changes
 
 ### Storage API
 

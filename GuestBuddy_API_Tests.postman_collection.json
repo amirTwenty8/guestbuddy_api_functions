@@ -65,6 +65,96 @@
 				"description": "Create a new event with document IDs for tableLayouts, categories, clubCardIds, and eventGenre. The function will fetch the names from these documents and store both IDs and names in the event."
 			},
 			"response": []
+		},
+		{
+			"name": "Update Event - Full Update",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"data\": {\n        \"eventId\": \"existing-event-id\",\n        \"eventName\": \"Updated Event Name\",\n        \"startDateTime\": \"{{$isoTimestamp}}\",\n        \"endDateTime\": \"{{$isoTimestamp}}\",\n        \"companyId\": \"YOUR_COMPANY_ID\",\n        \"tableLayouts\": [\"layout_document_id_1\", \"layout_document_id_3\"],\n        \"categories\": [\"category_document_id_1\"],\n        \"clubCardIds\": [\"clubcard_document_id_1\"],\n        \"eventGenre\": [\"genre_document_id_1\"]\n    }\n}"
+				},
+				"url": {
+					"raw": "https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/updateEvent",
+					"protocol": "https",
+					"host": [
+						"us-central1-guestbuddy-test-3b36d",
+						"cloudfunctions",
+						"net"
+					],
+					"path": [
+						"updateEvent"
+					]
+				},
+				"description": "Full update of an existing event with all fields. The function will automatically calculate which layouts to add/remove and update table summary statistics."
+			},
+			"response": []
+		},
+		{
+			"name": "Update Event - Name Only",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"data\": {\n        \"eventId\": \"existing-event-id\",\n        \"companyId\": \"YOUR_COMPANY_ID\",\n        \"eventName\": \"Updated Event Name\"\n    }\n}"
+				},
+				"url": {
+					"raw": "https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/updateEvent",
+					"protocol": "https",
+					"host": [
+						"us-central1-guestbuddy-test-3b36d",
+						"cloudfunctions",
+						"net"
+					],
+					"path": [
+						"updateEvent"
+					]
+				},
+				"description": "Partial update - only update the event name. Other fields remain unchanged."
+			},
+			"response": []
+		},
+		{
+			"name": "Update Event - Table Layouts Only",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"data\": {\n        \"eventId\": \"existing-event-id\",\n        \"companyId\": \"YOUR_COMPANY_ID\",\n        \"tableLayouts\": [\"layout_document_id_1\", \"layout_document_id_3\"]\n    }\n}"
+				},
+				"url": {
+					"raw": "https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/updateEvent",
+					"protocol": "https",
+					"host": [
+						"us-central1-guestbuddy-test-3b36d",
+						"cloudfunctions",
+						"net"
+					],
+					"path": [
+						"updateEvent"
+					]
+				},
+				"description": "Partial update - only update table layouts. The function will calculate which layouts to add/remove and update table summary statistics."
+			},
+			"response": []
 		}
 	],
 	"auth": {

@@ -5,7 +5,8 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 ## Available Functions
 
 1. **createEvent** - Create a new event with table layouts, categories, club cards, and genres
-2. **createAccount** - Create a new user account with Firebase Auth and Firestore data
+2. **updateEvent** - Update an existing event with table layout changes
+3. **createAccount** - Create a new user account with Firebase Auth and Firestore data
 
 ## Prerequisites
 
@@ -118,6 +119,168 @@ The response will contain an `idToken` field with your authentication token.
   }
 }
 ```
+
+## Testing the updateEvent Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/updateEvent`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body (Partial Updates Supported)
+
+You can now send **only the fields you want to update**! Here are some examples:
+
+#### Example 1: Update only the event name
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "companyId": "YOUR_COMPANY_ID",
+    "eventName": "Updated Event Name"
+  }
+}
+```
+
+#### Example 2: Update only dates
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "companyId": "YOUR_COMPANY_ID",
+    "startDateTime": "2023-08-01T18:00:00Z",
+    "endDateTime": "2023-08-01T23:00:00Z"
+  }
+}
+```
+
+#### Example 3: Update only table layouts
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "companyId": "YOUR_COMPANY_ID",
+    "tableLayouts": ["layout_document_id_1", "layout_document_id_3"]
+  }
+}
+```
+
+#### Example 4: Full update (all fields)
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "eventName": "Updated Event Name",
+    "startDateTime": "2023-08-01T18:00:00Z",
+    "endDateTime": "2023-08-01T23:00:00Z",
+    "companyId": "YOUR_COMPANY_ID",
+    "tableLayouts": ["layout_document_id_1", "layout_document_id_3"],
+    "categories": ["category_document_id_1"],
+    "clubCardIds": ["clubcard_document_id_1"],
+    "eventGenre": ["genre_document_id_1"]
+  }
+}
+```
+
+> **Important**: 
+> - **Required fields**: `eventId` and `companyId`
+> - **Optional fields**: `eventName`, `startDateTime`, `endDateTime`, `tableLayouts`, `categories`, `clubCardIds`, `eventGenre`
+> - Only provided fields will be updated
+> - If `tableLayouts` is provided, the function will automatically calculate which layouts to add/remove
+> - Table summary statistics are only updated when `tableLayouts` is provided
+
+### Expected Response
+
+The response will only include the fields that were updated:
+
+#### Example 1: Name-only update response
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Event updated successfully",
+    "data": {
+      "eventId": "existing-event-id",
+      "eventName": "Updated Event Name"
+    }
+  }
+}
+```
+
+#### Example 2: Table layouts update response
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Event updated successfully",
+    "data": {
+      "eventId": "existing-event-id",
+      "tableLayouts": [
+        {"id": "layout_document_id_1", "name": "Layout Name 1"},
+        {"id": "layout_document_id_3", "name": "Layout Name 3"}
+      ],
+      "changes": {
+        "layoutsRemoved": ["layout_document_id_2"],
+        "layoutsAdded": ["layout_document_id_3"],
+        "tableChanges": {
+          "totalTablesChange": 5,
+          "totalGuestsChange": 25,
+          "totalCheckedInChange": 0,
+          "totalBookedChange": 2,
+          "totalTableLimitChange": 50,
+          "totalTableSpentChange": 0
+        }
+      }
+    }
+  }
+}
+```
+
+#### Example 3: Full update response
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Event updated successfully",
+    "data": {
+      "eventId": "existing-event-id",
+      "eventName": "Updated Event Name",
+      "startDateTime": "2023-08-01T18:00:00Z",
+      "endDateTime": "2023-08-01T23:00:00Z",
+      "tableLayouts": [
+        {"id": "layout_document_id_1", "name": "Layout Name 1"},
+        {"id": "layout_document_id_3", "name": "Layout Name 3"}
+      ],
+      "categories": [
+        {"id": "category_document_id_1", "name": "VIP"}
+      ],
+      "clubCardIds": [
+        {"id": "clubcard_document_id_1", "name": "Gold Card"}
+      ],
+      "eventGenre": [
+        {"id": "genre_document_id_1", "name": "Party"}
+      ],
+      "changes": {
+        "layoutsRemoved": ["layout_document_id_2"],
+        "layoutsAdded": ["layout_document_id_3"],
+        "tableChanges": {
+          "totalTablesChange": 5,
+          "totalGuestsChange": 25,
+          "totalCheckedInChange": 0,
+          "totalBookedChange": 2,
+          "totalTableLimitChange": 50,
+          "totalTableSpentChange": 0
+        }
+      }
+    }
+  }
+}
+```
+
+> **Note**: The `changes` object is only included when `tableLayouts` is provided in the request.
 
 ## Testing the createAccount Function
 
