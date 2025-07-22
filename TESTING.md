@@ -8,7 +8,10 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 2. **updateEvent** - Update an existing event with table layout changes
 3. **deleteEvent** - Delete an event and all its subcollections
 4. **addGuest** - Add a guest to an event's guest list with summary updates
-5. **createAccount** - Create a new user account with Firebase Auth and Firestore data
+5. **addMultipleGuests** - Add multiple guests from text input with draft support
+6. **saveGuestDraft** - Save a draft for multiple guests
+7. **clearGuestDraft** - Clear a saved draft for multiple guests
+8. **createAccount** - Create a new user account with Firebase Auth and Firestore data
 
 ## Prerequisites
 
@@ -410,6 +413,126 @@ The response will only include the fields that were updated:
   "result": {
     "success": false,
     "error": "At least one guest type must have a value greater than 0"
+  }
+}
+```
+
+## Testing the addMultipleGuests Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/addMultipleGuests`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "companyId": "YOUR_COMPANY_ID",
+    "guestsText": "John Doe +2 +3\nJane Smith +1 +2\nBob Johnson +0 +1"
+  }
+}
+```
+
+> **Important**: 
+> - **Required fields**: `eventId`, `companyId`, `guestsText`
+> - **Format**: Each line should be "FirstName LastName +free +paid"
+> - **Example**: "John Doe +2 +3" means 2 free guests and 3 paid guests
+> - The function will parse each line and create individual guest entries
+> - All guests are added to company guests collection for tracking
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Multiple guests added successfully",
+    "data": {
+      "guestsAdded": 3,
+      "totalNormalGuests": 6,
+      "totalFreeGuests": 3,
+      "totalGuests": 9,
+      "addedBy": "John Doe",
+      "addedAt": "2023-08-01T18:00:00.000Z",
+      "guestNames": ["John Doe", "Jane Smith", "Bob Johnson"]
+    }
+  }
+}
+```
+
+## Testing the saveGuestDraft Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/saveGuestDraft`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "draftText": "John Doe +2 +3\nJane Smith +1 +2"
+  }
+}
+```
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Draft saved successfully",
+    "data": {
+      "eventId": "existing-event-id",
+      "savedAt": "2023-08-01T18:00:00.000Z"
+    }
+  }
+}
+```
+
+## Testing the clearGuestDraft Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/clearGuestDraft`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "eventId": "existing-event-id"
+  }
+}
+```
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Draft cleared successfully",
+    "data": {
+      "eventId": "existing-event-id",
+      "clearedAt": "2023-08-01T18:00:00.000Z"
+    }
   }
 }
 ```

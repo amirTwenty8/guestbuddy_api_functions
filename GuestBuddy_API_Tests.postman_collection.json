@@ -215,6 +215,97 @@
 				"description": "Add a guest to an event's guest list. Automatically updates guest list summary statistics and adds guest to company guests. If selectedUserId is provided, uses existing user ID; otherwise generates new user ID."
 			},
 			"response": []
+		},
+		{
+			"name": "Add Multiple Guests",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"data\": {\n        \"eventId\": \"existing-event-id\",\n        \"companyId\": \"YOUR_COMPANY_ID\",\n        \"guestsText\": \"John Doe +2 +3\\nJane Smith +1 +2\\nBob Johnson +0 +1\"\n    }\n}"
+				},
+				"url": {
+					"raw": "https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/addMultipleGuests",
+					"protocol": "https",
+					"host": [
+						"us-central1-guestbuddy-test-3b36d",
+						"cloudfunctions",
+						"net"
+					],
+					"path": [
+						"addMultipleGuests"
+					]
+				},
+				"description": "Add multiple guests from text input. Format: 'FirstName LastName +free +paid'. Parses each line and creates individual guest entries."
+			},
+			"response": []
+		},
+		{
+			"name": "Save Guest Draft",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"data\": {\n        \"eventId\": \"existing-event-id\",\n        \"draftText\": \"John Doe +2 +3\\nJane Smith +1 +2\"\n    }\n}"
+				},
+				"url": {
+					"raw": "https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/saveGuestDraft",
+					"protocol": "https",
+					"host": [
+						"us-central1-guestbuddy-test-3b36d",
+						"cloudfunctions",
+						"net"
+					],
+					"path": [
+						"saveGuestDraft"
+					]
+				},
+				"description": "Save a draft for multiple guests. Stores the draft text in the user's document for later retrieval."
+			},
+			"response": []
+		},
+
+		{
+			"name": "Clear Guest Draft",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"data\": {\n        \"eventId\": \"existing-event-id\"\n    }\n}"
+				},
+				"url": {
+					"raw": "https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/clearGuestDraft",
+					"protocol": "https",
+					"host": [
+						"us-central1-guestbuddy-test-3b36d",
+						"cloudfunctions",
+						"net"
+					],
+					"path": [
+						"clearGuestDraft"
+					]
+				},
+				"description": "Clear a saved draft for multiple guests. Removes the draft text from the user's document."
+			},
+			"response": []
 		}
 	],
 	"auth": {

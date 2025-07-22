@@ -39,6 +39,19 @@ const addGuestSchema = Joi.object({
   selectedUserId: Joi.string().optional(), // Optional: if user was selected from search
 });
 
+// Validation schema for adding multiple guests
+const addMultipleGuestsSchema = Joi.object({
+  eventId: Joi.string().required(),
+  companyId: Joi.string().required(),
+  guestsText: Joi.string().required().min(1),
+});
+
+// Validation schema for draft operations
+const draftSchema = Joi.object({
+  eventId: Joi.string().required(),
+  draftText: Joi.string().optional(),
+});
+
 /**
  * Add a guest to an event's guest list
  * This function handles:
@@ -256,6 +269,336 @@ export const addGuest = onCall({enforceAppCheck: false}, async (request) => {
     return {
       success: false,
       error: "Failed to add guest",
+    };
+  }
+});
+
+/**
+ * Add multiple guests to an event's guest list from text input
+ * This function handles:
+ * 1. Parsing text input in format: "FirstName LastName +free +paid"
+ * 2. Creating multiple guest objects
+ * 3. Adding all guests to the guest list
+ * 4. Updating guest list summary statistics
+ * 5. Creating log entries for each guest
+ * 
+ * Format: "John Doe +2 +3" (2 free guests, 3 paid guests)
+ */
+export const addMultipleGuests = onCall({enforceAppCheck: false}, async (request) => {
+  try {
+    // Ensure user is authenticated
+    if (!request.auth) {
+      throw new Error("Unauthorized");
+    }
+    
+    const userId = request.auth.uid;
+    const userData = request.auth.token;
+    
+    // Get user name from token or fetch from Firestore
+    let userName = userData.name || userData.displayName || userId;
+    
+    // If we only have the ID, try to get the user's name from Firestore
+    if (userName === userId) {
+      try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (userDoc.exists) {
+          const userDocData = userDoc.data();
+          const firstName = userDocData?.userFirstName || '';
+          const lastName = userDocData?.userLastName || '';
+          userName = `${firstName} ${lastName}`.trim();
+          if (userName === '') {
+            userName = userId; // Fallback to ID if no name found
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to fetch user name from Firestore:', error);
+        userName = userId; // Fallback to ID
+      }
+    }
+    
+    // Validate request data
+    const {
+      eventId,
+      companyId,
+      guestsText,
+    } = request.data;
+
+    // Validate input data
+    const {error} = addMultipleGuestsSchema.validate(request.data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Check if company exists
+    const companyRef = db.collection('companies').doc(companyId);
+    const companyDoc = await companyRef.get();
+    
+    if (!companyDoc.exists) {
+      return {
+        success: false,
+        error: "Company not found",
+      };
+    }
+
+    // Check if event exists
+    const eventRef = db.collection('companies').doc(companyId).collection('events').doc(eventId);
+    const eventDoc = await eventRef.get();
+    
+    if (!eventDoc.exists) {
+      return {
+        success: false,
+        error: "Event not found",
+      };
+    }
+
+    // Parse guests from text
+    const lines = guestsText.split('\n');
+    const newGuests: Guest[] = [];
+    let totalNormalGuests = 0;
+    let totalFreeGuests = 0;
+
+    for (const line of lines) {
+      if (line.trim().isEmpty) continue;
+
+      const parts = line.trim().split(' ');
+      if (parts.length < 3) continue;
+
+      const nameEndIndex = parts.findIndex((part: string) => part.startsWith('+'));
+      if (nameEndIndex === -1) continue;
+
+      const name = parts.slice(0, nameEndIndex).join(' ');
+      const numbers = parts
+        .slice(nameEndIndex)
+        .filter((part: string) => part.startsWith('+'))
+        .map((part: string) => parseInt(part.substring(1)) || 0);
+
+      const freeGuests = numbers.length > 0 ? numbers[0] : 0;
+      const paidGuests = numbers.length > 1 ? numbers[1] : 0;
+
+      if (name && (freeGuests > 0 || paidGuests > 0)) {
+        const guestId = uuidv4();
+        
+        newGuests.push({
+          guestId,
+          guestName: name,
+          freeGuests,
+          normalGuests: paidGuests,
+          freeCheckedIn: 0,
+          normalCheckedIn: 0,
+          categories: [],
+          comment: '',
+          logs: [
+            {
+              action: 'created',
+              userId,
+              userName,
+              timestamp: new Date(),
+              changes: {
+                guestName: name,
+                normalGuests: paidGuests,
+                freeGuests,
+                comment: '',
+                categories: [],
+              },
+            },
+          ],
+        });
+
+        totalNormalGuests += paidGuests;
+        totalFreeGuests += freeGuests;
+      }
+    }
+
+    if (newGuests.length === 0) {
+      return {
+        success: false,
+        error: "No valid guests found in the provided text",
+      };
+    }
+
+    // Get guest list references
+    const guestListMainRef = eventRef.collection('guest_lists').doc('main');
+    const guestListSummaryRef = eventRef.collection('guest_lists').doc('guestListSummary');
+    const guestListLogRef = eventRef.collection('guest_lists').doc('guestlistLog');
+
+    // Get current data before transaction (all reads first)
+    const [guestListMainDoc, guestListLogDoc] = await Promise.all([
+      guestListMainRef.get(),
+      guestListLogRef.get(),
+    ]);
+
+    let currentGuestList: Guest[] = [];
+    if (guestListMainDoc.exists) {
+      const data = guestListMainDoc.data();
+      currentGuestList = data?.guestList || [];
+    }
+
+    let currentLogs: any[] = [];
+    if (guestListLogDoc.exists) {
+      const data = guestListLogDoc.data();
+      currentLogs = data?.logs || [];
+    }
+
+    // Prepare log entries for each guest
+    const logEntries = newGuests.map(guest => ({
+      addedAt: new Date().toISOString(),
+      addedBy: userName,
+      guestName: guest.guestName,
+      status: "added",
+      userId: userId,
+    }));
+
+    // Add new guests to the list
+    currentGuestList.push(...newGuests);
+    currentLogs.push(...logEntries);
+
+    // Run all operations in a transaction (only writes)
+    await db.runTransaction(async (transaction) => {
+      // 1. Update guest list main document
+      transaction.set(guestListMainRef, {
+        eventId,
+        guestList: currentGuestList,
+        lastUpdated: FieldValue.serverTimestamp(),
+      });
+
+      // 2. Update guest list summary
+      transaction.update(guestListSummaryRef, {
+        totalGuests: FieldValue.increment(totalNormalGuests + totalFreeGuests),
+        totalNormalGuests: FieldValue.increment(totalNormalGuests),
+        totalFreeGuests: FieldValue.increment(totalFreeGuests),
+        lastUpdated: FieldValue.serverTimestamp(),
+      });
+
+      // 3. Update guest list log
+      transaction.set(guestListLogRef, {
+        logs: currentLogs,
+        lastUpdated: FieldValue.serverTimestamp(),
+      });
+    });
+
+    return {
+      success: true,
+      message: "Multiple guests added successfully",
+      data: {
+        guestsAdded: newGuests.length,
+        totalNormalGuests,
+        totalFreeGuests,
+        totalGuests: totalNormalGuests + totalFreeGuests,
+        addedBy: userName,
+        addedAt: new Date().toISOString(),
+        guestNames: newGuests.map(g => g.guestName),
+      },
+    };
+  } catch (error) {
+    console.error("Error adding multiple guests:", error);
+    return {
+      success: false,
+      error: "Failed to add multiple guests",
+    };
+  }
+});
+
+/**
+ * Save a draft for multiple guests
+ */
+export const saveGuestDraft = onCall({enforceAppCheck: false}, async (request) => {
+  try {
+    // Ensure user is authenticated
+    if (!request.auth) {
+      throw new Error("Unauthorized");
+    }
+    
+    const userId = request.auth.uid;
+    
+    // Validate request data
+    const {
+      eventId,
+      draftText,
+    } = request.data;
+
+    // Validate input data
+    const {error} = draftSchema.validate(request.data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Save draft to user's document
+    await db.collection('users').doc(userId).update({
+      [`guestListDrafts.${eventId}`]: draftText || '',
+    });
+
+    return {
+      success: true,
+      message: "Draft saved successfully",
+      data: {
+        eventId,
+        savedAt: new Date().toISOString(),
+      },
+    };
+  } catch (error) {
+    console.error("Error saving draft:", error);
+    return {
+      success: false,
+      error: "Failed to save draft",
+    };
+  }
+});
+
+
+
+/**
+ * Clear a saved draft for multiple guests
+ */
+export const clearGuestDraft = onCall({enforceAppCheck: false}, async (request) => {
+  try {
+    // Ensure user is authenticated
+    if (!request.auth) {
+      throw new Error("Unauthorized");
+    }
+    
+    const userId = request.auth.uid;
+    
+    // Validate request data
+    const {
+      eventId,
+    } = request.data;
+
+    // Validate input data
+    const {error} = Joi.object({
+      eventId: Joi.string().required(),
+    }).validate(request.data);
+    
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Clear draft from user's document
+    await db.collection('users').doc(userId).update({
+      [`guestListDrafts.${eventId}`]: FieldValue.delete(),
+    });
+
+    return {
+      success: true,
+      message: "Draft cleared successfully",
+      data: {
+        eventId,
+        clearedAt: new Date().toISOString(),
+      },
+    };
+  } catch (error) {
+    console.error("Error clearing draft:", error);
+    return {
+      success: false,
+      error: "Failed to clear draft",
     };
   }
 });
