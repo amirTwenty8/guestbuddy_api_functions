@@ -155,6 +155,36 @@
 				"description": "Partial update - only update table layouts. The function will calculate which layouts to add/remove and update table summary statistics."
 			},
 			"response": []
+		},
+		{
+			"name": "Delete Event",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"data\": {\n        \"eventId\": \"existing-event-id\",\n        \"companyId\": \"YOUR_COMPANY_ID\"\n    }\n}"
+				},
+				"url": {
+					"raw": "https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/deleteEvent",
+					"protocol": "https",
+					"host": [
+						"us-central1-guestbuddy-test-3b36d",
+						"cloudfunctions",
+						"net"
+					],
+					"path": [
+						"deleteEvent"
+					]
+				},
+				"description": "Delete an event and all its subcollections (guest_lists, table_lists). This operation is irreversible."
+			},
+			"response": []
 		}
 	],
 	"auth": {

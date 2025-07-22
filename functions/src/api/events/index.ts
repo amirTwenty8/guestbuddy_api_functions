@@ -822,3 +822,127 @@ export const updateEvent = onCall({enforceAppCheck: false}, async (request) => {
     };
   }
 }); 
+
+/**
+ * Delete an existing event and all its subcollections
+ * This function handles:
+ * 1. Deleting all documents in guest_lists subcollection
+ * 2. Deleting all documents in table_lists subcollection
+ * 3. Deleting the main event document
+ * 
+ * All operations are performed in a single transaction for data consistency
+ */
+export const deleteEvent = onCall({enforceAppCheck: false}, async (request) => {
+  try {
+    // Ensure user is authenticated
+    if (!request.auth) {
+      throw new Error("Unauthorized");
+    }
+    
+    const userId = request.auth.uid;
+    const userData = request.auth.token;
+    const userName = userData.name || userId;
+    
+    // Validate request data
+    const {
+      eventId,
+      companyId,
+    } = request.data;
+
+    // Validation schema for event deletion
+    const deleteEventSchema = Joi.object({
+      eventId: Joi.string().required(),
+      companyId: Joi.string().required(),
+    });
+
+    // Validate input data
+    const {error} = deleteEventSchema.validate(request.data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Check if company exists
+    const companyRef = db.collection('companies').doc(companyId);
+    const companyDoc = await companyRef.get();
+    
+    if (!companyDoc.exists) {
+      return {
+        success: false,
+        error: "Company not found",
+      };
+    }
+
+    // Check if event exists
+    const eventRef = db.collection('companies').doc(companyId).collection('events').doc(eventId);
+    const eventDoc = await eventRef.get();
+    
+    if (!eventDoc.exists) {
+      return {
+        success: false,
+        error: "Event not found",
+      };
+    }
+
+    // Get event data for logging
+    const eventData = eventDoc.data();
+    const eventName = eventData?.eventName || eventId;
+
+    // Get all subcollection documents to delete
+    const guestListsRef = eventRef.collection('guest_lists');
+    const tableListsRef = eventRef.collection('table_lists');
+
+    // Fetch all documents from subcollections
+    const [guestListDocs, tableListDocs] = await Promise.all([
+      guestListsRef.get(),
+      tableListsRef.get(),
+    ]);
+
+    // Prepare batch operations
+    const batch = db.batch();
+    
+    // Add all guest_lists documents to batch delete
+    guestListDocs.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+
+    // Add all table_lists documents to batch delete
+    tableListDocs.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+
+    // Add the main event document to batch delete
+    batch.delete(eventRef);
+
+    // Execute all deletions in a single batch
+    await batch.commit();
+
+    // Log the deletion (optional - you can add this to a separate collection if needed)
+    console.log(`Event deleted by user ${userName} (${userId}): ${eventName} (${eventId}) in company ${companyId}`);
+    console.log(`Deleted ${guestListDocs.docs.length} guest list documents and ${tableListDocs.docs.length} table list documents`);
+
+    return {
+      success: true,
+      message: "Event deleted successfully",
+      data: {
+        eventId,
+        eventName,
+        deletedDocuments: {
+          guestLists: guestListDocs.docs.length,
+          tableLists: tableListDocs.docs.length,
+          total: guestListDocs.docs.length + tableListDocs.docs.length + 1, // +1 for the main event document
+        },
+        deletedBy: userName,
+        deletedAt: new Date().toISOString(),
+      },
+    };
+  } catch (error) {
+    console.error("Error deleting event:", error);
+    return {
+      success: false,
+      error: "Failed to delete event",
+    };
+  }
+}); 

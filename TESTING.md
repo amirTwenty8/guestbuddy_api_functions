@@ -6,7 +6,8 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 
 1. **createEvent** - Create a new event with table layouts, categories, club cards, and genres
 2. **updateEvent** - Update an existing event with table layout changes
-3. **createAccount** - Create a new user account with Firebase Auth and Firestore data
+3. **deleteEvent** - Delete an event and all its subcollections
+4. **createAccount** - Create a new user account with Firebase Auth and Firestore data
 
 ## Prerequisites
 
@@ -281,6 +282,66 @@ The response will only include the fields that were updated:
 ```
 
 > **Note**: The `changes` object is only included when `tableLayouts` is provided in the request.
+
+## Testing the deleteEvent Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/deleteEvent`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "companyId": "YOUR_COMPANY_ID"
+  }
+}
+```
+
+> **Important**: 
+> - **Required fields**: `eventId` and `companyId`
+> - The function will delete the event and ALL its subcollections (guest_lists, table_lists)
+> - This operation is **irreversible** - make sure to confirm with the user
+> - The function will return information about what was deleted
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Event deleted successfully",
+    "data": {
+      "eventId": "existing-event-id",
+      "eventName": "Test Event",
+      "deletedDocuments": {
+        "guestLists": 3,
+        "tableLists": 5,
+        "total": 9
+      },
+      "deletedBy": "John Doe",
+      "deletedAt": "2023-08-01T18:00:00.000Z"
+    }
+  }
+}
+```
+
+### Error Response (Event Not Found)
+
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Event not found"
+  }
+}
+```
 
 ## Testing the createAccount Function
 

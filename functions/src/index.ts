@@ -33,3 +33,4 @@ export const deleteFile = storageApi.deleteFile;
 // Events API
 export const createEvent = eventsApi.createEvent;
 export const updateEvent = eventsApi.updateEvent;
+export const deleteEvent = eventsApi.deleteEvent;
