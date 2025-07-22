@@ -61,6 +61,10 @@ Authorization: Bearer <firebase-id-token>
 - **updateEvent** - Callable function to update an existing event with table layout changes
 - **deleteEvent** - Callable function to delete an event and all its subcollections
 
+### Guests API
+
+- **addGuest** - Callable function to add a guest to an event's guest list with summary updates
+
 ### Storage API
 
 - **getUploadSignedUrl** - Callable function to generate a signed URL for file uploads

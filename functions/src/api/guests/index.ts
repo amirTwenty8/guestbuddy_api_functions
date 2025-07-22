@@ -1,0 +1,365 @@
+import {onCall} from "firebase-functions/v2/https";
+import {getFirestore, FieldValue} from "firebase-admin/firestore";
+import * as Joi from "joi";
+import {v4 as uuidv4} from "uuid";
+
+// Get Firestore instance
+const db = getFirestore();
+
+// Type definitions
+interface GuestLog {
+  action: string;
+  userId: string;
+  userName: string;
+  timestamp: Date;
+  changes: Record<string, any>;
+}
+
+interface Guest {
+  guestId: string;
+  guestName: string;
+  normalGuests: number;
+  freeGuests: number;
+  normalCheckedIn: number;
+  freeCheckedIn: number;
+  comment: string;
+  categories: string[];
+  logs: GuestLog[];
+}
+
+// Validation schema for adding a guest
+const addGuestSchema = Joi.object({
+  eventId: Joi.string().required(),
+  companyId: Joi.string().required(),
+  guestName: Joi.string().required().min(1).max(100),
+  normalGuests: Joi.number().integer().min(0).default(0),
+  freeGuests: Joi.number().integer().min(0).default(0),
+  comment: Joi.string().optional().max(500).default(''),
+  categories: Joi.array().items(Joi.string()).optional().default([]),
+  selectedUserId: Joi.string().optional(), // Optional: if user was selected from search
+});
+
+/**
+ * Add a guest to an event's guest list
+ * This function handles:
+ * 1. Validating the guest data
+ * 2. Generating a unique guest ID
+ * 3. Adding the guest to the guest list
+ * 4. Updating guest list summary statistics
+ * 5. Adding the guest to company guests (if user was selected)
+ * 
+ * All operations are performed in a single transaction for data consistency
+ */
+export const addGuest = onCall({enforceAppCheck: false}, async (request) => {
+  try {
+    // Ensure user is authenticated
+    if (!request.auth) {
+      throw new Error("Unauthorized");
+    }
+    
+    const userId = request.auth.uid;
+    const userData = request.auth.token;
+    
+    // Get user name from token or fetch from Firestore
+    let userName = userData.name || userData.displayName || userId;
+    
+    // If we only have the ID, try to get the user's name from Firestore
+    if (userName === userId) {
+      try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (userDoc.exists) {
+          const userDocData = userDoc.data();
+          const firstName = userDocData?.userFirstName || '';
+          const lastName = userDocData?.userLastName || '';
+          userName = `${firstName} ${lastName}`.trim();
+          if (userName === '') {
+            userName = userId; // Fallback to ID if no name found
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to fetch user name from Firestore:', error);
+        userName = userId; // Fallback to ID
+      }
+    }
+    
+    // Validate request data
+    const {
+      eventId,
+      companyId,
+      guestName,
+      normalGuests,
+      freeGuests,
+      comment,
+      categories,
+      selectedUserId,
+    } = request.data;
+
+    // Validate input data
+    const {error} = addGuestSchema.validate(request.data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Validate that at least one guest type has a value
+    if (normalGuests === 0 && freeGuests === 0) {
+      return {
+        success: false,
+        error: "At least one guest type must have a value greater than 0",
+      };
+    }
+
+    // Check if company exists
+    const companyRef = db.collection('companies').doc(companyId);
+    const companyDoc = await companyRef.get();
+    
+    if (!companyDoc.exists) {
+      return {
+        success: false,
+        error: "Company not found",
+      };
+    }
+
+    // Check if event exists
+    const eventRef = db.collection('companies').doc(companyId).collection('events').doc(eventId);
+    const eventDoc = await eventRef.get();
+    
+    if (!eventDoc.exists) {
+      return {
+        success: false,
+        error: "Event not found",
+      };
+    }
+
+    // Generate unique guest ID
+    const guestId = uuidv4();
+
+    // Prepare guest data
+    const newGuest: Guest = {
+      guestId,
+      guestName,
+      normalGuests: normalGuests || 0,
+      freeGuests: freeGuests || 0,
+      normalCheckedIn: 0,
+      freeCheckedIn: 0,
+      comment: comment || '',
+      categories: categories || [],
+      logs: [
+        {
+          action: 'created',
+          userId,
+          userName,
+          timestamp: new Date(),
+          changes: {
+            guestName,
+            normalGuests: normalGuests || 0,
+            freeGuests: freeGuests || 0,
+            comment: comment || '',
+            categories: categories || [],
+          },
+        },
+      ],
+    };
+
+    // Get guest list references
+    const guestListMainRef = eventRef.collection('guest_lists').doc('main');
+    const guestListSummaryRef = eventRef.collection('guest_lists').doc('guestListSummary');
+    const guestListLogRef = eventRef.collection('guest_lists').doc('guestlistLog');
+
+    // Get current data before transaction (all reads first)
+    const [guestListMainDoc, guestListLogDoc] = await Promise.all([
+      guestListMainRef.get(),
+      guestListLogRef.get(),
+    ]);
+
+    let currentGuestList: Guest[] = [];
+    if (guestListMainDoc.exists) {
+      const data = guestListMainDoc.data();
+      currentGuestList = data?.guestList || [];
+    }
+
+    let currentLogs: any[] = [];
+    if (guestListLogDoc.exists) {
+      const data = guestListLogDoc.data();
+      currentLogs = data?.logs || [];
+    }
+
+    // Prepare log entry with standardized format
+    const logEntry = {
+      addedAt: new Date().toISOString(),
+      addedBy: userName,
+      guestName: guestName,
+      status: "added",
+      userId: userId,
+    };
+
+    // Add new guest to the list
+    currentGuestList.push(newGuest);
+    currentLogs.push(logEntry);
+
+    // Run all operations in a transaction (only writes)
+    await db.runTransaction(async (transaction) => {
+      // 1. Update guest list main document
+      transaction.set(guestListMainRef, {
+        eventId,
+        guestList: currentGuestList,
+        lastUpdated: FieldValue.serverTimestamp(),
+      });
+
+      // 2. Update guest list summary
+      const totalGuests = (normalGuests || 0) + (freeGuests || 0);
+      const totalNormalGuests = normalGuests || 0;
+      const totalFreeGuests = freeGuests || 0;
+
+      transaction.update(guestListSummaryRef, {
+        totalGuests: FieldValue.increment(totalGuests),
+        totalNormalGuests: FieldValue.increment(totalNormalGuests),
+        totalFreeGuests: FieldValue.increment(totalFreeGuests),
+        lastUpdated: FieldValue.serverTimestamp(),
+      });
+
+      // 3. Update guest list log
+      transaction.set(guestListLogRef, {
+        logs: currentLogs,
+        lastUpdated: FieldValue.serverTimestamp(),
+      });
+    });
+
+    // 6. Add guest to company guests (whether new or existing user)
+    try {
+      const userIdForCompanyGuests = selectedUserId || guestId; // Use selected user ID or generate new one
+      await _addUserToCompanyGuests(companyId, eventId, userIdForCompanyGuests, guestName, selectedUserId ? 'existing' : 'new');
+    } catch (error) {
+      console.warn('Failed to add user to company guests:', error);
+      // Don't fail the main operation for this
+    }
+
+    return {
+      success: true,
+      message: "Guest added successfully",
+      data: {
+        guestId,
+        guestName,
+        normalGuests: normalGuests || 0,
+        freeGuests: freeGuests || 0,
+        totalGuests: (normalGuests || 0) + (freeGuests || 0),
+        addedBy: userName,
+        addedAt: new Date().toISOString(),
+        userIdForCompanyGuests: selectedUserId || guestId,
+        userType: selectedUserId ? 'existing' : 'new',
+      },
+    };
+  } catch (error) {
+    console.error("Error adding guest:", error);
+    return {
+      success: false,
+      error: "Failed to add guest",
+    };
+  }
+});
+
+/**
+ * Helper function to add a user to company guests with genre tracking
+ */
+async function _addUserToCompanyGuests(companyId: string, eventId: string, userId: string, guestName: string, userType: 'existing' | 'new') {
+  try {
+    let userName: string;
+    let userEmail: string;
+    let dateOfBirth: string;
+    let userCity: string;
+
+    if (userType === 'existing') {
+      // Get user data from users collection for existing users
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (!userDoc.exists) {
+        console.warn('User not found for company guests:', userId);
+        return;
+      }
+
+      const userData = userDoc.data();
+      userName = `${userData?.userFirstName || ''} ${userData?.userLastName || ''}`.trim();
+      userEmail = userData?.userEmail || '';
+      dateOfBirth = userData?.birthDate || '';
+      userCity = userData?.city || '';
+    } else {
+      // For new guests, use the provided guest name and empty/default values
+      userName = guestName;
+      userEmail = '';
+      dateOfBirth = '';
+      userCity = '';
+    }
+
+    // Get event genre data
+    const eventDoc = await db.collection('companies').doc(companyId).collection('events').doc(eventId).get();
+    let eventGenres: string[] = [];
+    
+    if (eventDoc.exists) {
+      const data = eventDoc.data();
+      if (data?.eventGenre && Array.isArray(data.eventGenre)) {
+        // Handle both string array and object array formats
+        eventGenres = data.eventGenre.map((genre: any) => {
+          if (typeof genre === 'string') return genre;
+          if (genre && typeof genre === 'object' && genre.name) return genre.name;
+          return '';
+        }).filter((genre: string) => genre.length > 0);
+      }
+    }
+
+    // Prepare company-specific genre counts
+    const companySpecificGenres: Record<string, {nrOfTimes: number}> = {};
+    for (const genre of eventGenres) {
+      if (genre.length > 0) {
+        companySpecificGenres[genre] = {nrOfTimes: 1};
+      }
+    }
+
+    // Reference to the user in company guests collection
+    const companyGuestRef = db.collection('companies').doc(companyId).collection('guests').doc(userId);
+    const guestDoc = await companyGuestRef.get();
+
+    // Prepare guest data
+    const guestData: any = {
+      userId,
+      name: userName,
+      email: userEmail,
+      dateOfBirth,
+      city: userCity,
+      lastUpdated: new Date(),
+    };
+
+    // Only add genres to the guest data if genres exist
+    if (Object.keys(companySpecificGenres).length > 0) {
+      if (guestDoc.exists) {
+        // If the guest already exists, merge their genres
+        const existingData = guestDoc.data();
+        if (existingData?.visitedGenres && typeof existingData.visitedGenres === 'object') {
+          const mergedGenres = {...existingData.visitedGenres};
+          
+          for (const [genre, newData] of Object.entries(companySpecificGenres)) {
+            if (!mergedGenres[genre]) {
+              mergedGenres[genre] = newData;
+            } else {
+              const currentCount = mergedGenres[genre].nrOfTimes || 0;
+              mergedGenres[genre] = {nrOfTimes: currentCount + 1};
+            }
+          }
+          
+          guestData.visitedGenres = mergedGenres;
+        } else {
+          guestData.visitedGenres = companySpecificGenres;
+        }
+      } else {
+        // New guest, just add the genres
+        guestData.visitedGenres = companySpecificGenres;
+      }
+    }
+
+    // Add or update guest data
+    await companyGuestRef.set(guestData, {merge: true});
+  } catch (error) {
+    console.error('Error adding user to company guests:', error);
+    throw error;
+  }
+} 

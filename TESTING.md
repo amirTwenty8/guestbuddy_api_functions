@@ -7,7 +7,8 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 1. **createEvent** - Create a new event with table layouts, categories, club cards, and genres
 2. **updateEvent** - Update an existing event with table layout changes
 3. **deleteEvent** - Delete an event and all its subcollections
-4. **createAccount** - Create a new user account with Firebase Auth and Firestore data
+4. **addGuest** - Add a guest to an event's guest list with summary updates
+5. **createAccount** - Create a new user account with Firebase Auth and Firestore data
 
 ## Prerequisites
 
@@ -339,6 +340,76 @@ The response will only include the fields that were updated:
   "result": {
     "success": false,
     "error": "Event not found"
+  }
+}
+```
+
+## Testing the addGuest Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/addGuest`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "companyId": "YOUR_COMPANY_ID",
+    "guestName": "John Doe",
+    "normalGuests": 2,
+    "freeGuests": 1,
+    "comment": "VIP guest with special requirements",
+    "categories": ["VIP"],
+    "selectedUserId": "optional-user-id-from-search"
+  }
+}
+```
+
+> **Important**: 
+> - **Required fields**: `eventId`, `companyId`, `guestName`
+> - **Optional fields**: `normalGuests` (default: 0), `freeGuests` (default: 0), `comment`, `categories`, `selectedUserId`
+> - At least one of `normalGuests` or `freeGuests` must be greater than 0
+> - The function will automatically update guest list summary statistics
+> - **User ID handling**: 
+>   - If `selectedUserId` is provided (existing user from search), that ID is used
+>   - If no `selectedUserId` is provided (new guest), a new user ID is auto-generated
+> - All guests are added to company guests collection for tracking
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Guest added successfully",
+    "data": {
+      "guestId": "generated-uuid",
+      "guestName": "John Doe",
+      "normalGuests": 2,
+      "freeGuests": 1,
+      "totalGuests": 3,
+      "addedBy": "John Doe",
+      "addedAt": "2023-08-01T18:00:00.000Z",
+      "userIdForCompanyGuests": "existing-user-id-or-generated-uuid",
+      "userType": "existing"
+    }
+  }
+}
+```
+
+### Error Response (Validation Error)
+
+```json
+{
+  "result": {
+    "success": false,
+    "error": "At least one guest type must have a value greater than 0"
   }
 }
 ```

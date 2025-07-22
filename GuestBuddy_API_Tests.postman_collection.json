@@ -185,6 +185,36 @@
 				"description": "Delete an event and all its subcollections (guest_lists, table_lists). This operation is irreversible."
 			},
 			"response": []
+		},
+		{
+			"name": "Add Guest",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"data\": {\n        \"eventId\": \"existing-event-id\",\n        \"companyId\": \"YOUR_COMPANY_ID\",\n        \"guestName\": \"John Doe\",\n        \"normalGuests\": 2,\n        \"freeGuests\": 1,\n        \"comment\": \"VIP guest with special requirements\",\n        \"categories\": [\"VIP\"],\n        \"selectedUserId\": \"optional-user-id-from-search\"\n    }\n}"
+				},
+				"url": {
+					"raw": "https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/addGuest",
+					"protocol": "https",
+					"host": [
+						"us-central1-guestbuddy-test-3b36d",
+						"cloudfunctions",
+						"net"
+					],
+					"path": [
+						"addGuest"
+					]
+				},
+				"description": "Add a guest to an event's guest list. Automatically updates guest list summary statistics and adds guest to company guests. If selectedUserId is provided, uses existing user ID; otherwise generates new user ID."
+			},
+			"response": []
 		}
 	],
 	"auth": {

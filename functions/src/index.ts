@@ -14,6 +14,7 @@ import * as authApi from "./api/auth";
 import * as dataApi from "./api/data";
 import * as storageApi from "./api/storage";
 import * as eventsApi from "./api/events";
+import * as guestsApi from "./api/guests";
 
 // Export all functions
 export const users = usersApi.users;
@@ -34,3 +35,6 @@ export const deleteFile = storageApi.deleteFile;
 export const createEvent = eventsApi.createEvent;
 export const updateEvent = eventsApi.updateEvent;
 export const deleteEvent = eventsApi.deleteEvent;
+
+// Guests API
+export const addGuest = guestsApi.addGuest;
