@@ -129,3 +129,4 @@ export const createUserProfile = onCall({enforceAppCheck: true}, async (request)
     throw new Error("Failed to create user profile");
   }
 });
+ 

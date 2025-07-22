@@ -129,9 +129,9 @@ The function expects the following Firestore collections to exist under each com
 - **Example**: `{ "name": "VIP", "description": "VIP category" }`
 
 ### Club Cards
-- **Collection**: `companies/{companyId}/clubCards`
-- **Document Structure**: Must have a `name` field
-- **Example**: `{ "name": "Gold Card", "benefits": [...] }`
+- **Collection**: `companies/{companyId}/cards`
+- **Document Structure**: Must have a `title` field
+- **Example**: `{ "title": "VIP GB", "description": "VIP card description", "imageUrl": "...", "validFrom": "...", "validTo": "..." }`
 
 ### Event Genres
 - **Collection**: `companies/{companyId}/genres`

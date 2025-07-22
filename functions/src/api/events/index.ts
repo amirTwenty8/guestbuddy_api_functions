@@ -175,15 +175,19 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
         const clubCardDoc = await db
           .collection('companies')
           .doc(companyId)
-          .collection('clubCards')
+          .collection('cards')
           .doc(clubCardId)
           .get();
         
         if (clubCardDoc.exists) {
           const clubCardData = clubCardDoc.data();
+          
+          // Use the title field for club cards
+          const cardName = clubCardData?.title || clubCardId;
+          
           fetchedData.clubCardIds.push({
             id: clubCardId,
-            name: clubCardData?.name || clubCardId,
+            name: cardName,
           });
         } else {
           return {

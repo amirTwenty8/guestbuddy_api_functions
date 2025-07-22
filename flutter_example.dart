@@ -89,7 +89,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> {
           'category_document_id_2', // Replace with actual category document ID
         ],
         
-        // Club Card IDs (document IDs from companies/{companyId}/clubCards collection)
+        // Club Card IDs (document IDs from companies/{companyId}/cards collection)
         'clubCardIds': [
           'clubcard_document_id_1', // Replace with actual club card document ID
           'clubcard_document_id_2', // Replace with actual club card document ID
