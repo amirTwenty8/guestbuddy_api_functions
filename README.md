@@ -67,6 +67,7 @@ Authorization: Bearer <firebase-id-token>
 - **addMultipleGuests** - Callable function to add multiple guests from text input with draft support
 - **saveGuestDraft** - Callable function to save a draft for multiple guests
 - **clearGuestDraft** - Callable function to clear a saved draft for multiple guests
+- **updateGuest** - Callable function to update an existing guest's details with summary recalculation
 
 ### Storage API
 

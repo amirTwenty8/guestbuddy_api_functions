@@ -41,3 +41,4 @@ export const addGuest = guestsApi.addGuest;
 export const addMultipleGuests = guestsApi.addMultipleGuests;
 export const saveGuestDraft = guestsApi.saveGuestDraft;
 export const clearGuestDraft = guestsApi.clearGuestDraft;
+export const updateGuest = guestsApi.updateGuest;

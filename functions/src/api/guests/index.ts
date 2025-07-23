@@ -52,6 +52,18 @@ const draftSchema = Joi.object({
   draftText: Joi.string().optional(),
 });
 
+// Validation schema for updating a guest
+const updateGuestSchema = Joi.object({
+  eventId: Joi.string().required(),
+  companyId: Joi.string().required(),
+  guestId: Joi.string().required(),
+  guestName: Joi.string().optional(),
+  normalGuests: Joi.number().min(0).optional(),
+  freeGuests: Joi.number().min(0).optional(),
+  comment: Joi.string().optional(),
+  categories: Joi.array().items(Joi.string()).optional(),
+});
+
 /**
  * Add a guest to an event's guest list
  * This function handles:
@@ -599,6 +611,250 @@ export const clearGuestDraft = onCall({enforceAppCheck: false}, async (request) 
     return {
       success: false,
       error: "Failed to clear draft",
+    };
+  }
+});
+
+/**
+ * Update an existing guest in an event's guest list
+ * This function handles:
+ * 1. Updating guest details (name, counts, comment, categories)
+ * 2. Calculating differences in guest counts
+ * 3. Updating guest list summary statistics
+ * 4. Creating log entries for changes
+ * 5. Maintaining guest list integrity
+ */
+export const updateGuest = onCall({enforceAppCheck: false}, async (request) => {
+  try {
+    // Ensure user is authenticated
+    if (!request.auth) {
+      throw new Error("Unauthorized");
+    }
+    
+    const userId = request.auth.uid;
+    const userData = request.auth.token;
+    
+    // Get user name from token or fetch from Firestore
+    let userName = userData.name || userData.displayName || userId;
+    
+    // If we only have the ID, try to get the user's name from Firestore
+    if (userName === userId) {
+      try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (userDoc.exists) {
+          const userDocData = userDoc.data();
+          const firstName = userDocData?.userFirstName || '';
+          const lastName = userDocData?.userLastName || '';
+          userName = `${firstName} ${lastName}`.trim();
+          if (userName === '') {
+            userName = userId; // Fallback to ID if no name found
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to fetch user name from Firestore:', error);
+        userName = userId; // Fallback to ID
+      }
+    }
+    
+    // Validate request data
+    const {
+      eventId,
+      companyId,
+      guestId,
+      guestName,
+      normalGuests,
+      freeGuests,
+      comment,
+      categories,
+    } = request.data;
+
+    // Validate input data
+    const {error} = updateGuestSchema.validate(request.data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Check if company exists
+    const companyRef = db.collection('companies').doc(companyId);
+    const companyDoc = await companyRef.get();
+    
+    if (!companyDoc.exists) {
+      return {
+        success: false,
+        error: "Company not found",
+      };
+    }
+
+    // Check if event exists
+    const eventRef = db.collection('companies').doc(companyId).collection('events').doc(eventId);
+    const eventDoc = await eventRef.get();
+    
+    if (!eventDoc.exists) {
+      return {
+        success: false,
+        error: "Event not found",
+      };
+    }
+
+    // Get guest list references
+    const guestListMainRef = eventRef.collection('guest_lists').doc('main');
+    const guestListSummaryRef = eventRef.collection('guest_lists').doc('guestListSummary');
+    const guestListLogRef = eventRef.collection('guest_lists').doc('guestlistLog');
+
+    // Get current data before transaction (all reads first)
+    const [guestListMainDoc, guestListLogDoc] = await Promise.all([
+      guestListMainRef.get(),
+      guestListLogRef.get(),
+    ]);
+
+    if (!guestListMainDoc.exists) {
+      return {
+        success: false,
+        error: "Guest list not found",
+      };
+    }
+
+    const data = guestListMainDoc.data();
+    const currentGuestList: Guest[] = data?.guestList || [];
+    
+    // Find the guest to update
+    const guestIndex = currentGuestList.findIndex(g => g.guestId === guestId);
+    if (guestIndex === -1) {
+      return {
+        success: false,
+        error: "Guest not found",
+      };
+    }
+
+    const originalGuest = currentGuestList[guestIndex];
+    
+    // Calculate differences
+    const normalGuestsDiff = (normalGuests ?? originalGuest.normalGuests) - originalGuest.normalGuests;
+    const freeGuestsDiff = (freeGuests ?? originalGuest.freeGuests) - originalGuest.freeGuests;
+    const totalGuestsDiff = normalGuestsDiff + freeGuestsDiff;
+
+    // Prepare changes object for logging
+    const changes: Record<string, any> = {};
+    
+    if (guestName !== undefined && guestName !== originalGuest.guestName) {
+      changes.guestName = guestName;
+    }
+    if (normalGuests !== undefined && normalGuests !== originalGuest.normalGuests) {
+      changes.normalGuests = normalGuests;
+    }
+    if (freeGuests !== undefined && freeGuests !== originalGuest.freeGuests) {
+      changes.freeGuests = freeGuests;
+    }
+    if (comment !== undefined && comment !== originalGuest.comment) {
+      changes.comment = comment;
+    }
+    if (categories !== undefined && JSON.stringify(categories) !== JSON.stringify(originalGuest.categories)) {
+      changes.categories = categories;
+    }
+
+    // If no changes, return early
+    if (Object.keys(changes).length === 0) {
+      return {
+        success: true,
+        message: "No changes detected",
+        data: {
+          guestId,
+          guestName: originalGuest.guestName,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+    }
+
+    // Update the guest object
+    const updatedGuest: Guest = {
+      ...originalGuest,
+      guestName: guestName ?? originalGuest.guestName,
+      normalGuests: normalGuests ?? originalGuest.normalGuests,
+      freeGuests: freeGuests ?? originalGuest.freeGuests,
+      comment: comment ?? originalGuest.comment,
+      categories: categories ?? originalGuest.categories,
+      logs: [
+        ...originalGuest.logs,
+        {
+          action: 'updated',
+          userId,
+          userName,
+          timestamp: new Date(),
+          changes,
+        },
+      ],
+    };
+
+    // Update the guest in the list
+    currentGuestList[guestIndex] = updatedGuest;
+
+    // Prepare log entry for guestlistLog with standardized format
+    const logEntry = {
+      addedAt: new Date().toISOString(),
+      addedBy: userName,
+      guestName: updatedGuest.guestName,
+      status: "updated",
+      userId: userId,
+    };
+
+    let currentLogs: any[] = [];
+    if (guestListLogDoc.exists) {
+      const logData = guestListLogDoc.data();
+      currentLogs = logData?.logs || [];
+    }
+    currentLogs.push(logEntry);
+
+    // Run all operations in a transaction (only writes)
+    await db.runTransaction(async (transaction) => {
+      // 1. Update guest list main document
+      transaction.set(guestListMainRef, {
+        eventId,
+        guestList: currentGuestList,
+        lastUpdated: FieldValue.serverTimestamp(),
+      });
+
+      // 2. Update guest list summary (only if guest counts changed)
+      if (totalGuestsDiff !== 0) {
+        transaction.update(guestListSummaryRef, {
+          totalGuests: FieldValue.increment(totalGuestsDiff),
+          totalNormalGuests: FieldValue.increment(normalGuestsDiff),
+          totalFreeGuests: FieldValue.increment(freeGuestsDiff),
+          lastUpdated: FieldValue.serverTimestamp(),
+        });
+      }
+
+      // 3. Update guest list log
+      transaction.set(guestListLogRef, {
+        logs: currentLogs,
+        lastUpdated: FieldValue.serverTimestamp(),
+      });
+    });
+
+    return {
+      success: true,
+      message: "Guest updated successfully",
+      data: {
+        guestId,
+        guestName: updatedGuest.guestName,
+        normalGuests: updatedGuest.normalGuests,
+        freeGuests: updatedGuest.freeGuests,
+        totalGuests: updatedGuest.normalGuests + updatedGuest.freeGuests,
+        comment: updatedGuest.comment,
+        categories: updatedGuest.categories,
+        updatedBy: userName,
+        updatedAt: new Date().toISOString(),
+        changes: changes,
+        summaryUpdated: totalGuestsDiff !== 0,
+      },
+    };
+  } catch (error) {
+    console.error("Error updating guest:", error);
+    return {
+      success: false,
+      error: "Failed to update guest",
     };
   }
 });

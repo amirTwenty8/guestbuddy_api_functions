@@ -306,6 +306,36 @@
 				"description": "Clear a saved draft for multiple guests. Removes the draft text from the user's document."
 			},
 			"response": []
+		},
+		{
+			"name": "Update Guest",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"data\": {\n        \"eventId\": \"existing-event-id\",\n        \"companyId\": \"YOUR_COMPANY_ID\",\n        \"guestId\": \"existing-guest-id\",\n        \"guestName\": \"Updated Guest Name\",\n        \"normalGuests\": 3,\n        \"freeGuests\": 1,\n        \"comment\": \"Updated comment\",\n        \"categories\": [\"VIP\"]\n    }\n}"
+				},
+				"url": {
+					"raw": "https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/updateGuest",
+					"protocol": "https",
+					"host": [
+						"us-central1-guestbuddy-test-3b36d",
+						"cloudfunctions",
+						"net"
+					],
+					"path": [
+						"updateGuest"
+					]
+				},
+				"description": "Update an existing guest's details. Supports partial updates - only send the fields you want to change. Automatically recalculates summary statistics and logs changes."
+			},
+			"response": []
 		}
 	],
 	"auth": {

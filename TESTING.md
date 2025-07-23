@@ -11,7 +11,8 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 5. **addMultipleGuests** - Add multiple guests from text input with draft support
 6. **saveGuestDraft** - Save a draft for multiple guests
 7. **clearGuestDraft** - Clear a saved draft for multiple guests
-8. **createAccount** - Create a new user account with Firebase Auth and Firestore data
+8. **updateGuest** - Update an existing guest's details with summary recalculation
+9. **createAccount** - Create a new user account with Firebase Auth and Firestore data
 
 ## Prerequisites
 
@@ -536,6 +537,87 @@ The response will only include the fields that were updated:
   }
 }
 ```
+
+## Testing the updateGuest Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/updateGuest`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "companyId": "YOUR_COMPANY_ID",
+    "guestId": "existing-guest-id",
+    "guestName": "Updated Guest Name",
+    "normalGuests": 3,
+    "freeGuests": 1,
+    "comment": "Updated comment",
+    "categories": ["VIP"]
+  }
+}
+```
+
+> **Important**: 
+> - **Required fields**: `eventId`, `companyId`, `guestId`
+> - **Optional fields**: `guestName`, `normalGuests`, `freeGuests`, `comment`, `categories`
+> - Only send the fields you want to update
+> - The function will calculate differences and update summary statistics accordingly
+> - Changes are logged with user information and timestamp
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Guest updated successfully",
+    "data": {
+      "guestId": "existing-guest-id",
+      "guestName": "Updated Guest Name",
+      "normalGuests": 3,
+      "freeGuests": 1,
+      "totalGuests": 4,
+      "comment": "Updated comment",
+      "categories": ["VIP"],
+      "updatedBy": "John Doe",
+      "updatedAt": "2023-08-01T18:00:00.000Z",
+      "changes": {
+        "guestName": "Updated Guest Name",
+        "normalGuests": 3,
+        "freeGuests": 1,
+        "comment": "Updated comment",
+        "categories": ["VIP"]
+      },
+      "summaryUpdated": true
+    }
+  }
+}
+```
+
+### Partial Update Example
+
+You can also update only specific fields:
+
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "companyId": "YOUR_COMPANY_ID",
+    "guestId": "existing-guest-id",
+    "guestName": "New Name Only"
+  }
+}
+```
+
+This will only update the guest name and leave all other fields unchanged.
 
 ## Testing the createAccount Function
 
