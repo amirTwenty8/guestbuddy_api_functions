@@ -68,6 +68,7 @@ Authorization: Bearer <firebase-id-token>
 - **saveGuestDraft** - Callable function to save a draft for multiple guests
 - **clearGuestDraft** - Callable function to clear a saved draft for multiple guests
 - **updateGuest** - Callable function to update an existing guest's details with summary recalculation
+- **checkInGuest** - Callable function to check in guests or edit check-in counts with rapid tapping support
 
 ### Storage API
 

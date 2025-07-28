@@ -336,6 +336,66 @@
 				"description": "Update an existing guest's details. Supports partial updates - only send the fields you want to change. Automatically recalculates summary statistics and logs changes."
 			},
 			"response": []
+		},
+		{
+			"name": "Check In Guest (Increment)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"data\": {\n        \"eventId\": \"existing-event-id\",\n        \"companyId\": \"YOUR_COMPANY_ID\",\n        \"guestId\": \"existing-guest-id\",\n        \"normalIncrement\": 1,\n        \"freeIncrement\": 0,\n        \"action\": \"increment\"\n    }\n}"
+				},
+				"url": {
+					"raw": "https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/checkInGuest",
+					"protocol": "https",
+					"host": [
+						"us-central1-guestbuddy-test-3b36d",
+						"cloudfunctions",
+						"net"
+					],
+					"path": [
+						"checkInGuest"
+					]
+				},
+				"description": "Check in guests using increment mode (for rapid tapping). Adds to existing check-in counts."
+			},
+			"response": []
+		},
+		{
+			"name": "Check In Guest (Set)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"data\": {\n        \"eventId\": \"existing-event-id\",\n        \"companyId\": \"YOUR_COMPANY_ID\",\n        \"guestId\": \"existing-guest-id\",\n        \"normalCheckedIn\": 3,\n        \"freeCheckedIn\": 1,\n        \"action\": \"set\"\n    }\n}"
+				},
+				"url": {
+					"raw": "https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/checkInGuest",
+					"protocol": "https",
+					"host": [
+						"us-central1-guestbuddy-test-3b36d",
+						"cloudfunctions",
+						"net"
+					],
+					"path": [
+						"checkInGuest"
+					]
+				},
+				"description": "Set specific check-in counts (for manual editing). Directly sets the check-in values."
+			},
+			"response": []
 		}
 	],
 	"auth": {

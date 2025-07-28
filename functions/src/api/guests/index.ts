@@ -64,6 +64,18 @@ const updateGuestSchema = Joi.object({
   categories: Joi.array().items(Joi.string()).optional(),
 });
 
+// Validation schema for checking in guests
+const checkInGuestSchema = Joi.object({
+  eventId: Joi.string().required(),
+  companyId: Joi.string().required(),
+  guestId: Joi.string().required(),
+  normalIncrement: Joi.number().min(0).optional(),
+  freeIncrement: Joi.number().min(0).optional(),
+  normalCheckedIn: Joi.number().min(0).optional(),
+  freeCheckedIn: Joi.number().min(0).optional(),
+  action: Joi.string().valid('increment', 'set').required(),
+});
+
 /**
  * Add a guest to an event's guest list
  * This function handles:
@@ -855,6 +867,277 @@ export const updateGuest = onCall({enforceAppCheck: false}, async (request) => {
     return {
       success: false,
       error: "Failed to update guest",
+    };
+  }
+});
+
+/**
+ * Check in guests or edit check-in counts
+ * This function handles:
+ * 1. Incrementing check-in counts (for rapid tapping)
+ * 2. Setting specific check-in counts (for manual editing)
+ * 3. Updating guest list summary statistics
+ * 4. Creating log entries for check-in actions
+ * 5. Validating check-in limits
+ */
+export const checkInGuest = onCall({enforceAppCheck: false}, async (request) => {
+  try {
+    // Ensure user is authenticated
+    if (!request.auth) {
+      throw new Error("Unauthorized");
+    }
+    
+    const userId = request.auth.uid;
+    const userData = request.auth.token;
+    
+    // Get user name from token or fetch from Firestore
+    let userName = userData.name || userData.displayName || userId;
+    
+    // If we only have the ID, try to get the user's name from Firestore
+    if (userName === userId) {
+      try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (userDoc.exists) {
+          const userDocData = userDoc.data();
+          const firstName = userDocData?.userFirstName || '';
+          const lastName = userDocData?.userLastName || '';
+          userName = `${firstName} ${lastName}`.trim();
+          if (userName === '') {
+            userName = userId; // Fallback to ID if no name found
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to fetch user name from Firestore:', error);
+        userName = userId; // Fallback to ID
+      }
+    }
+    
+    // Validate request data
+    const {
+      eventId,
+      companyId,
+      guestId,
+      normalIncrement,
+      freeIncrement,
+      normalCheckedIn,
+      freeCheckedIn,
+      action,
+    } = request.data;
+
+    // Validate input data
+    const {error} = checkInGuestSchema.validate(request.data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Check if company exists
+    const companyRef = db.collection('companies').doc(companyId);
+    const companyDoc = await companyRef.get();
+    
+    if (!companyDoc.exists) {
+      return {
+        success: false,
+        error: "Company not found",
+      };
+    }
+
+    // Check if event exists
+    const eventRef = db.collection('companies').doc(companyId).collection('events').doc(eventId);
+    const eventDoc = await eventRef.get();
+    
+    if (!eventDoc.exists) {
+      return {
+        success: false,
+        error: "Event not found",
+      };
+    }
+
+    // Get guest list references
+    const guestListMainRef = eventRef.collection('guest_lists').doc('main');
+    const guestListSummaryRef = eventRef.collection('guest_lists').doc('guestListSummary');
+    const guestListLogRef = eventRef.collection('guest_lists').doc('guestlistLog');
+
+    // Get current log data before transaction
+    const guestListLogDoc = await guestListLogRef.get();
+    let currentLogs: any[] = [];
+    if (guestListLogDoc.exists) {
+      const logData = guestListLogDoc.data();
+      currentLogs = logData?.logs || [];
+    }
+
+    // Run all operations in a transaction (reads and writes)
+    const result = await db.runTransaction(async (transaction) => {
+      // 1. Read current guest list data inside transaction
+      const guestListMainDoc = await transaction.get(guestListMainRef);
+      
+      if (!guestListMainDoc.exists) {
+        throw new Error("Guest list not found");
+      }
+
+      const data = guestListMainDoc.data();
+      const currentGuestList: Guest[] = data?.guestList || [];
+      
+      // Find the guest to update
+      const guestIndex = currentGuestList.findIndex(g => g.guestId === guestId);
+      if (guestIndex === -1) {
+        throw new Error("Guest not found");
+      }
+
+      const originalGuest = currentGuestList[guestIndex];
+      
+      // Calculate new check-in values based on action
+      let newNormalCheckedIn: number;
+      let newFreeCheckedIn: number;
+      let normalDiff: number;
+      let freeDiff: number;
+      let totalDiff: number;
+      let logAction: string;
+      let changes: Record<string, any> = {};
+
+      if (action === 'increment') {
+        // Increment mode - add to existing values
+        newNormalCheckedIn = originalGuest.normalCheckedIn + (normalIncrement || 0);
+        newFreeCheckedIn = originalGuest.freeCheckedIn + (freeIncrement || 0);
+        normalDiff = normalIncrement || 0;
+        freeDiff = freeIncrement || 0;
+        logAction = 'checked in';
+        
+        if (normalIncrement && normalIncrement > 0) {
+          changes.normalCheckedIn = newNormalCheckedIn;
+        }
+        if (freeIncrement && freeIncrement > 0) {
+          changes.freeCheckedIn = newFreeCheckedIn;
+        }
+      } else {
+        // Set mode - directly set values
+        newNormalCheckedIn = normalCheckedIn ?? originalGuest.normalCheckedIn;
+        newFreeCheckedIn = freeCheckedIn ?? originalGuest.freeCheckedIn;
+        normalDiff = newNormalCheckedIn - originalGuest.normalCheckedIn;
+        freeDiff = newFreeCheckedIn - originalGuest.freeCheckedIn;
+        logAction = 'edited check-in';
+        
+        if (normalCheckedIn !== undefined && normalCheckedIn !== originalGuest.normalCheckedIn) {
+          changes.normalCheckedIn = newNormalCheckedIn;
+        }
+        if (freeCheckedIn !== undefined && freeCheckedIn !== originalGuest.freeCheckedIn) {
+          changes.freeCheckedIn = newFreeCheckedIn;
+        }
+      }
+
+      // Calculate total difference
+      totalDiff = normalDiff + freeDiff;
+
+      // Validate check-in limits
+      if (newNormalCheckedIn > originalGuest.normalGuests) {
+        throw new Error(`Cannot check in more than ${originalGuest.normalGuests} normal guests`);
+      }
+
+      if (newFreeCheckedIn > originalGuest.freeGuests) {
+        throw new Error(`Cannot check in more than ${originalGuest.freeGuests} free guests`);
+      }
+
+      if (newNormalCheckedIn < 0 || newFreeCheckedIn < 0) {
+        throw new Error("Check-in counts cannot be negative");
+      }
+
+      // If no changes, return early
+      if (normalDiff === 0 && freeDiff === 0) {
+        return {
+          success: true,
+          message: "No changes detected",
+          data: {
+            guestId,
+            guestName: originalGuest.guestName,
+            normalCheckedIn: originalGuest.normalCheckedIn,
+            freeCheckedIn: originalGuest.freeCheckedIn,
+            updatedAt: new Date().toISOString(),
+          },
+        };
+      }
+
+      // Update the guest object
+      const updatedGuest: Guest = {
+        ...originalGuest,
+        normalCheckedIn: newNormalCheckedIn,
+        freeCheckedIn: newFreeCheckedIn,
+        logs: [
+          ...originalGuest.logs,
+          {
+            action: logAction,
+            userId,
+            userName,
+            timestamp: new Date(),
+            changes,
+          },
+        ],
+      };
+
+      // Update the guest in the list
+      currentGuestList[guestIndex] = updatedGuest;
+
+      // Prepare log entry for guestlistLog
+      const logEntry = {
+        addedAt: new Date().toISOString(),
+        addedBy: userName,
+        guestName: updatedGuest.guestName,
+        status: "checked_in",
+        userId: userId,
+      };
+      currentLogs.push(logEntry);
+
+      // 2. Update guest list main document
+      transaction.set(guestListMainRef, {
+        eventId,
+        guestList: currentGuestList,
+        lastUpdated: FieldValue.serverTimestamp(),
+      });
+
+      // 3. Update guest list summary
+      if (totalDiff !== 0) {
+        transaction.update(guestListSummaryRef, {
+          totalCheckedIn: FieldValue.increment(totalDiff),
+          normalGuestsCheckedIn: FieldValue.increment(normalDiff),
+          freeGuestsCheckedIn: FieldValue.increment(freeDiff),
+          lastUpdated: FieldValue.serverTimestamp(),
+        });
+      }
+
+      // 4. Update guest list log
+      transaction.set(guestListLogRef, {
+        logs: currentLogs,
+        lastUpdated: FieldValue.serverTimestamp(),
+      });
+
+      // Return the result data
+      return {
+        success: true,
+        message: action === 'increment' ? "Guests checked in successfully" : "Check-in count updated successfully",
+        data: {
+          guestId,
+          guestName: updatedGuest.guestName,
+          normalCheckedIn: newNormalCheckedIn,
+          freeCheckedIn: newFreeCheckedIn,
+          totalCheckedIn: newNormalCheckedIn + newFreeCheckedIn,
+          normalGuests: originalGuest.normalGuests,
+          freeGuests: originalGuest.freeGuests,
+          checkedInBy: userName,
+          checkedInAt: new Date().toISOString(),
+          action: action,
+          changes: changes,
+          summaryUpdated: totalDiff !== 0,
+        },
+      };
+    });
+
+    return result;
+  } catch (error) {
+    console.error("Error checking in guest:", error);
+    return {
+      success: false,
+      error: "Failed to check in guest",
     };
   }
 });

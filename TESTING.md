@@ -12,7 +12,8 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 6. **saveGuestDraft** - Save a draft for multiple guests
 7. **clearGuestDraft** - Clear a saved draft for multiple guests
 8. **updateGuest** - Update an existing guest's details with summary recalculation
-9. **createAccount** - Create a new user account with Firebase Auth and Firestore data
+9. **checkInGuest** - Check in guests or edit check-in counts with rapid tapping support
+10. **createAccount** - Create a new user account with Firebase Auth and Firestore data
 
 ## Prerequisites
 
@@ -618,6 +619,121 @@ You can also update only specific fields:
 ```
 
 This will only update the guest name and leave all other fields unchanged.
+
+## Testing the checkInGuest Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/checkInGuest`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Increment Mode (Rapid Tapping)
+
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "companyId": "YOUR_COMPANY_ID",
+    "guestId": "existing-guest-id",
+    "normalIncrement": 1,
+    "freeIncrement": 0,
+    "action": "increment"
+  }
+}
+```
+
+### Set Mode (Manual Edit)
+
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "companyId": "YOUR_COMPANY_ID",
+    "guestId": "existing-guest-id",
+    "normalCheckedIn": 3,
+    "freeCheckedIn": 1,
+    "action": "set"
+  }
+}
+```
+
+> **Important**: 
+> - **Required fields**: `eventId`, `companyId`, `guestId`, `action`
+> - **Increment mode**: Use `normalIncrement` and `freeIncrement` to add to existing counts
+> - **Set mode**: Use `normalCheckedIn` and `freeCheckedIn` to set specific counts
+> - **Action**: Must be either "increment" or "set"
+> - Validates check-in limits against guest's total counts
+> - Updates summary statistics automatically
+> - Creates standardized log entries
+
+### Expected Response (Increment Mode)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Guests checked in successfully",
+    "data": {
+      "guestId": "existing-guest-id",
+      "guestName": "John Doe",
+      "normalCheckedIn": 3,
+      "freeCheckedIn": 1,
+      "totalCheckedIn": 4,
+      "normalGuests": 5,
+      "freeGuests": 2,
+      "checkedInBy": "Amir Company Ehsani",
+      "checkedInAt": "2023-08-01T18:00:00.000Z",
+      "action": "increment",
+      "changes": {
+        "normalCheckedIn": 3
+      },
+      "summaryUpdated": true
+    }
+  }
+}
+```
+
+### Expected Response (Set Mode)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Check-in count updated successfully",
+    "data": {
+      "guestId": "existing-guest-id",
+      "guestName": "John Doe",
+      "normalCheckedIn": 3,
+      "freeCheckedIn": 1,
+      "totalCheckedIn": 4,
+      "normalGuests": 5,
+      "freeGuests": 2,
+      "checkedInBy": "Amir Company Ehsani",
+      "checkedInAt": "2023-08-01T18:00:00.000Z",
+      "action": "set",
+      "changes": {
+        "normalCheckedIn": 3,
+        "freeCheckedIn": 1
+      },
+      "summaryUpdated": true
+    }
+  }
+}
+```
+
+### Error Response (Limit Exceeded)
+
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Cannot check in more than 5 normal guests"
+  }
+}
+```
 
 ## Testing the createAccount Function
 
