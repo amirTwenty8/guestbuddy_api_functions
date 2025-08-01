@@ -1,7 +1,16 @@
 import {onCall} from "firebase-functions/v2/https";
 import {getAuth} from "firebase-admin/auth";
-import {getFirestore, FieldValue} from "firebase-admin/firestore";
+import {getFirestore, FieldValue, Timestamp} from "firebase-admin/firestore";
 import * as Joi from "joi";
+import {v4 as uuidv4} from "uuid";
+import {defineSecret} from "firebase-functions/params";
+import {sendVerificationEmail, sendResendVerificationEmail} from "../../utils/email-service";
+
+// Define secrets
+const smtpUser = defineSecret("SMTP_USER");
+const smtpPass = defineSecret("SMTP_PASS");
+const smtpHost = defineSecret("SMTP_HOST");
+const smtpPort = defineSecret("SMTP_PORT");
 
 // Get Auth and Firestore instances
 const auth = getAuth();
@@ -18,6 +27,17 @@ const createAccountSchema = Joi.object({
   city: Joi.string().required().min(1).max(100),
   password: Joi.string().required().min(8).max(128),
   terms: Joi.boolean().required().valid(true), // Must accept terms
+});
+
+// Validation schema for email verification
+const verifyEmailSchema = Joi.object({
+  email: Joi.string().email().required(),
+  verificationCode: Joi.string().required().length(6).pattern(/^\d{6}$/), // 6 digits only
+});
+
+// Validation schema for resend verification email
+const resendVerificationEmailSchema = Joi.object({
+  email: Joi.string().email().required(),
 });
 
 // Type definitions
@@ -46,9 +66,390 @@ interface UserData {
   country: string;
   city: string;
   terms: boolean;
+  emailVerified: boolean;
   createdAt: FieldValue;
   updatedAt: FieldValue;
 }
+
+interface VerifyEmailData {
+  email: string;
+  verificationCode: string;
+}
+
+interface ResendVerificationEmailData {
+  email: string;
+}
+
+interface VerificationCodeData {
+  code: string;
+  email: string;
+  userId: string;
+  createdAt: FieldValue;
+  expiresAt: FieldValue;
+  used: boolean;
+}
+
+/**
+ * Generate a random 6-digit verification code
+ */
+function generateVerificationCode(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+/**
+ * Create a verification code document in Firestore
+ */
+async function createVerificationCode(email: string, userId: string): Promise<string> {
+  const code = generateVerificationCode();
+  
+  // Calculate expiration time (10 minutes from now)
+  const expiresAt = new Date();
+  expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+  
+  const verificationCodeData: VerificationCodeData = {
+    code,
+    email,
+    userId,
+    createdAt: FieldValue.serverTimestamp(),
+    expiresAt: Timestamp.fromDate(expiresAt),
+    used: false,
+  };
+  
+  // Store in verification_codes collection
+  const verificationCodeRef = db.collection('verification_codes').doc(uuidv4());
+  await verificationCodeRef.set(verificationCodeData);
+  
+  return code;
+}
+
+/**
+ * Validate a verification code
+ */
+async function validateVerificationCode(email: string, code: string): Promise<{valid: boolean; userId?: string; error?: string}> {
+  try {
+    console.log(`validateVerificationCode called with email: ${email}, code: ${code}`);
+    
+    // Query for the verification code - using a simpler query to avoid composite index requirements
+    const verificationCodesRef = db.collection('verification_codes');
+    const query = verificationCodesRef
+      .where('email', '==', email)
+      .where('code', '==', code)
+      .limit(100); // Get all potential matches and filter in code
+    
+    console.log(`Executing Firestore query for verification codes`);
+    const snapshot = await query.get();
+    
+    console.log(`Query returned ${snapshot.size} results`);
+    
+    if (snapshot.empty) {
+      console.log(`No verification codes found for email: ${email}, code: ${code}`);
+      return {valid: false, error: "Invalid verification code"};
+    }
+    
+    // Find the most recent, unused verification code
+    let validDoc = null;
+    let latestTimestamp = new Date(0); // Start with oldest possible date
+    
+    console.log(`Processing ${snapshot.size} verification codes to find the most recent valid one`);
+    
+    for (const doc of snapshot.docs) {
+      const data = doc.data() as VerificationCodeData;
+      console.log(`Checking verification code document:`, {
+        id: doc.id,
+        email: data.email,
+        code: data.code,
+        used: data.used,
+        userId: data.userId
+      });
+      
+      // Skip if already used
+      if (data.used === true) {
+        console.log(`Skipping used verification code: ${doc.id}`);
+        continue;
+      }
+      
+      // Get timestamp
+      const createdAt = data.createdAt as any;
+      if (!createdAt) {
+        console.log(`No createdAt timestamp for code: ${doc.id}`);
+        continue;
+      }
+      
+      const timestamp = createdAt.toDate();
+      console.log(`Code ${doc.id} created at: ${timestamp.toISOString()}`);
+      
+      // Keep track of the most recent one
+      if (timestamp > latestTimestamp) {
+        console.log(`Found more recent code: ${doc.id}`);
+        latestTimestamp = timestamp;
+        validDoc = doc;
+      }
+    }
+    
+    if (!validDoc) {
+      console.log(`No valid verification code found after processing all documents`);
+      return {valid: false, error: "No valid verification code found"};
+    }
+    
+    const doc = validDoc;
+    const data = doc.data() as VerificationCodeData;
+    
+    // Check if code has expired
+    const expiresAt = data.expiresAt as any;
+    
+    if (!expiresAt) {
+      console.log(`No expiresAt field found for code document: ${doc.id}`);
+      return {valid: false, error: "Invalid verification code format"};
+    }
+    
+    const expiryDate = expiresAt.toDate();
+    const now = new Date();
+    console.log(`Code expires at: ${expiryDate.toISOString()}, current time: ${now.toISOString()}`);
+    
+    if (now > expiryDate) {
+      console.log(`Verification code has expired`);
+      return {valid: false, error: "Verification code has expired"};
+    }
+    
+    // Mark code as used
+    await doc.ref.update({
+      used: true,
+    });
+    
+    return {valid: true, userId: data.userId};
+  } catch (error) {
+    console.error("Error validating verification code:", error);
+    return {valid: false, error: "Failed to validate verification code"};
+  }
+}
+
+/**
+ * Clean up expired verification codes
+ */
+async function cleanupExpiredVerificationCodes(): Promise<void> {
+  try {
+    const verificationCodesRef = db.collection('verification_codes');
+    const cutoffTime = new Date(); // current time
+    
+    const query = verificationCodesRef
+      .where('expiresAt', '<', Timestamp.fromDate(cutoffTime));
+    
+    const snapshot = await query.get();
+    
+    const batch = db.batch();
+    snapshot.docs.forEach(doc => {
+      batch.delete(doc.ref);
+    });
+    
+    if (snapshot.docs.length > 0) {
+      await batch.commit();
+      console.log(`Cleaned up ${snapshot.docs.length} expired verification codes`);
+    }
+  } catch (error) {
+    console.error("Error cleaning up expired verification codes:", error);
+  }
+}
+
+/**
+ * Verify email with verification code
+ * This function handles:
+ * 1. Validating the verification code format
+ * 2. Checking if the email exists in Firebase Auth
+ * 3. Verifying the email using Firebase Auth
+ * 4. Updating user data in Firestore if needed
+ */
+export const verifyEmail = onCall({
+  enforceAppCheck: false,
+  secrets: [smtpUser, smtpPass, smtpHost, smtpPort],
+}, async (request) => {
+  try {
+    const {email, verificationCode} = request.data as VerifyEmailData;
+
+    // Validate input data
+    const {error} = verifyEmailSchema.validate(request.data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Find the user by email
+    let userRecord;
+    try {
+      userRecord = await auth.getUserByEmail(email);
+    } catch (error: any) {
+      if (error.code === 'auth/user-not-found') {
+        return {
+          success: false,
+          error: "Email not found. Please check your email address.",
+        };
+      }
+      throw error;
+    }
+
+    // Check if email is already verified
+    if (userRecord.emailVerified) {
+      return {
+        success: true,
+        message: "Email is already verified",
+        data: {
+          email: userRecord.email,
+          emailVerified: true,
+          uid: userRecord.uid,
+        },
+      };
+    }
+
+    // Validate the verification code
+    console.log(`Attempting to validate code for email: ${email}, code: ${verificationCode}`);
+    const validationResult = await validateVerificationCode(email, verificationCode);
+    
+    console.log(`Validation result:`, validationResult);
+    
+    if (!validationResult.valid) {
+      return {
+        success: false,
+        error: validationResult.error || "Invalid verification code",
+      };
+    }
+    
+    // Verify that the user ID matches
+    if (validationResult.userId !== userRecord.uid) {
+      return {
+        success: false,
+        error: "Verification code does not match this account",
+      };
+    }
+    
+    // Log the successful verification
+    console.log(`Email verification successful for ${email} with code: ${verificationCode}`);
+    
+    // Update the user's email verification status in Firebase Auth
+    await auth.updateUser(userRecord.uid, {
+      emailVerified: true,
+    });
+
+    // Update user data in Firestore to mark as verified
+    const userRef = db.collection('users').doc(userRecord.uid);
+    await userRef.update({
+      userActive: true,
+      emailVerified: true,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return {
+      success: true,
+      message: "Email verified successfully",
+      data: {
+        email: userRecord.email,
+        emailVerified: true,
+        uid: userRecord.uid,
+      },
+    };
+  } catch (error) {
+    console.error("Error verifying email:", error);
+    return {
+      success: false,
+      error: "Failed to verify email. Please try again.",
+    };
+  }
+});
+
+/**
+ * Resend verification email
+ * This function handles:
+ * 1. Validating the email format
+ * 2. Checking if the email exists in Firebase Auth
+ * 3. Sending a new verification email
+ */
+export const resendVerificationEmail = onCall({
+  enforceAppCheck: false,
+  secrets: [smtpUser, smtpPass, smtpHost, smtpPort],
+}, async (request) => {
+  try {
+    const {email} = request.data as ResendVerificationEmailData;
+
+    // Validate input data
+    const {error} = resendVerificationEmailSchema.validate(request.data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Find the user by email
+    let userRecord;
+    try {
+      userRecord = await auth.getUserByEmail(email);
+    } catch (error: any) {
+      if (error.code === 'auth/user-not-found') {
+        return {
+          success: false,
+          error: "Email not found. Please check your email address.",
+        };
+      }
+      throw error;
+    }
+
+    // Check if email is already verified
+    if (userRecord.emailVerified) {
+      return {
+        success: true,
+        message: "Email is already verified",
+        data: {
+          email: userRecord.email,
+          emailVerified: true,
+        },
+      };
+    }
+
+    // Generate and store a new verification code
+    const verificationCode = await createVerificationCode(email, userRecord.uid);
+    
+    // Get user data to get the name
+    const userRef = db.collection('users').doc(userRecord.uid);
+    const userDoc = await userRef.get();
+    const userData = userDoc.data();
+    const userName = userData ? `${userData.userFirstName} ${userData.userLastName}` : 'User';
+    
+    // Send resend verification email
+    const emailSent = await sendResendVerificationEmail(
+      email, 
+      verificationCode, 
+      userName, 
+      smtpUser.value(), 
+      smtpPass.value(),
+      smtpHost.value(),
+      smtpPort.value()
+    );
+    
+    // Clean up expired verification codes (background task)
+    cleanupExpiredVerificationCodes().catch(error => {
+      console.error("Error cleaning up expired verification codes:", error);
+    });
+    
+    return {
+      success: true,
+      message: emailSent 
+        ? "New verification code sent successfully. Please check your email."
+        : "There was an issue sending the verification email. Please try again.",
+      data: {
+        email: userRecord.email,
+        emailVerified: false,
+        verificationCode: process.env.NODE_ENV === 'development' ? verificationCode : undefined, // Only include in development
+        emailSent: emailSent,
+      },
+    };
+  } catch (error) {
+    console.error("Error resending verification email:", error);
+    return {
+      success: false,
+      error: "Failed to resend verification email. Please try again.",
+    };
+  }
+});
 
 /**
  * Create a new user account
@@ -58,7 +459,10 @@ interface UserData {
  * 3. Saving additional user data to the users collection
  * 4. Setting up default values for business mode and company associations
  */
-export const createAccount = onCall({enforceAppCheck: false}, async (request) => {
+export const createAccount = onCall({
+  enforceAppCheck: false,
+  secrets: [smtpUser, smtpPass, smtpHost, smtpPort],
+}, async (request) => {
   try {
     // Validate request data
     const {
@@ -224,6 +628,7 @@ export const createAccount = onCall({enforceAppCheck: false}, async (request) =>
       country: country,
       city: city,
       terms: terms,
+      emailVerified: false, // Email not verified initially
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };
@@ -231,13 +636,37 @@ export const createAccount = onCall({enforceAppCheck: false}, async (request) =>
     // Save user data to Firestore using the Firebase Auth UID
     await usersRef.doc(userRecord.uid).set(userData);
 
+    // Generate and store verification code
+    const verificationCode = await createVerificationCode(email, userRecord.uid);
+    
+    // Send verification email
+    const userName = `${firstName} ${lastName}`;
+    const emailSent = await sendVerificationEmail(
+      email, 
+      verificationCode, 
+      userName, 
+      smtpUser.value(), 
+      smtpPass.value(),
+      smtpHost.value(),
+      smtpPort.value()
+    );
+    
+    // Clean up expired verification codes (background task)
+    cleanupExpiredVerificationCodes().catch(error => {
+      console.error("Error cleaning up expired verification codes:", error);
+    });
+
     return {
       success: true,
-      message: "Account created successfully",
+      message: emailSent 
+        ? "Account created successfully. Please check your email for verification code."
+        : "Account created successfully, but there was an issue sending the verification email. Please try the resend option.",
       data: {
         userId: userRecord.uid,
         email: userRecord.email,
         displayName: userRecord.displayName,
+        verificationCode: process.env.NODE_ENV === 'development' ? verificationCode : undefined, // Only include in development
+        emailSent: emailSent,
       },
     };
   } catch (error: any) {

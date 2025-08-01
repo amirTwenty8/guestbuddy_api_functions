@@ -23,6 +23,8 @@ export const createUserProfile = usersApi.createUserProfile;
 export const verifyToken = authApi.verifyToken;
 export const revokeUserSessions = authApi.revokeUserSessions;
 export const createAccount = authApi.createAccount;
+export const verifyEmail = authApi.verifyEmail; // Added for verifyEmail API
+export const resendVerificationEmail = authApi.resendVerificationEmail; // Added for resendVerificationEmail API
 
 export const data = dataApi.data;
 export const batchUpdateItems = dataApi.batchUpdateItems;

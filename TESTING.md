@@ -14,6 +14,8 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 8. **updateGuest** - Update an existing guest's details with summary recalculation
 9. **checkInGuest** - Check in guests or edit check-in counts with rapid tapping support
 10. **createAccount** - Create a new user account with Firebase Auth and Firestore data
+11. **verifyEmail** - Verify email with 6-digit verification code
+12. **resendVerificationEmail** - Resend verification email to user
 
 ## Prerequisites
 
@@ -769,15 +771,18 @@ This will only update the guest name and leave all other fields unchanged.
 {
   "result": {
     "success": true,
-    "message": "Account created successfully",
+    "message": "Account created successfully. Please check your email for verification code.",
     "data": {
       "userId": "rd9iei8OEYbqANWbgdyFGIVjAC23",
       "email": "john.doe@example.com",
-      "displayName": "John Doe"
+      "displayName": "John Doe",
+      "verificationCode": "123456"
     }
   }
 }
 ```
+
+**Note**: The `verificationCode` field is included in the response for testing purposes. In production, this should be removed and the code should be sent via email instead.
 
 ### Validation Rules
 
@@ -809,8 +814,35 @@ The function creates a user document in the `users` collection with the followin
   "country": "Sweden",
   "city": "Stockholm",
   "terms": true,
+  "emailVerified": false,
   "createdAt": "2025-01-20T10:30:00Z",
   "updatedAt": "2025-01-20T10:30:00Z"
+}
+```
+
+**Note**: The `emailVerified` field starts as `false` and is updated to `true` when the user successfully verifies their email using the `verifyEmail` API.
+
+### Verification Code System
+
+The API implements a secure verification code system:
+
+- **Code Generation**: Each account creation generates a unique 6-digit verification code
+- **Code Storage**: Codes are stored in the `verification_codes` collection with expiration
+- **Code Validation**: Codes expire after 10 minutes and can only be used once
+- **Code Cleanup**: Expired codes are automatically cleaned up from the database
+- **Email Sending**: Verification codes are sent via email to the user's email address
+
+**Email Configuration**: The system now sends actual verification emails. See `EMAIL_SETUP.md` for configuration instructions.
+
+**Verification Code Document Structure:**
+```json
+{
+  "code": "123456",
+  "email": "john.doe@example.com",
+  "userId": "rd9iei8OEYbqANWbgdyFGIVjAC23",
+  "createdAt": "2025-01-20T10:30:00Z",
+  "expiresAt": "2025-01-20T10:40:00Z",
+  "used": false
 }
 ```
 
@@ -825,6 +857,138 @@ The function automatically processes phone numbers based on the selected country
 - Sweden (+46): "+46732010328" → "0732010328"
 - Germany (+49): "+49123456789" → "0123456789"
 - UK (+44): "+447123456789" → "07123456789"
+
+## Testing the verifyEmail Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/verifyEmail`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - **Note**: No authentication required for email verification
+
+### Request Body
+
+```json
+{
+  "data": {
+    "email": "john.doe@example.com",
+    "verificationCode": "123456"
+  }
+}
+```
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Email verified successfully",
+    "data": {
+      "email": "john.doe@example.com",
+      "emailVerified": true,
+      "uid": "rd9iei8OEYbqANWbgdyFGIVjAC23"
+    }
+  }
+}
+```
+
+### Validation Rules
+
+- **email**: Required, valid email format, must exist in Firebase Auth
+- **verificationCode**: Required, exactly 6 digits (0-9)
+
+### Error Responses
+
+**Email not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Email not found. Please check your email address."
+  }
+}
+```
+
+**Invalid verification code format:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Validation error: \"verificationCode\" must be a string of 6 characters"
+  }
+}
+```
+
+## Testing the resendVerificationEmail Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/resendVerificationEmail`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - **Note**: No authentication required for resending verification email
+
+### Request Body
+
+```json
+{
+  "data": {
+    "email": "john.doe@example.com"
+  }
+}
+```
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "New verification code sent successfully. Please check your email.",
+    "data": {
+      "email": "john.doe@example.com",
+      "emailVerified": false,
+      "verificationCode": "789012"
+    }
+  }
+}
+```
+
+**Note**: The `verificationCode` field is included in the response for testing purposes. In production, this should be removed and the code should be sent via email instead.
+
+### Validation Rules
+
+- **email**: Required, valid email format, must exist in Firebase Auth
+
+### Error Responses
+
+**Email not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Email not found. Please check your email address."
+  }
+}
+```
+
+**Email already verified:**
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Email is already verified",
+    "data": {
+      "email": "john.doe@example.com",
+      "emailVerified": true
+    }
+  }
+}
+```
 
 ## Data Structure Requirements
 
