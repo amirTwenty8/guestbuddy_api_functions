@@ -1,4 +1,46 @@
 import * as nodemailer from 'nodemailer';
+import * as fs from 'fs';
+import * as path from 'path';
+
+// Function to get the base64 encoded logo
+function getLogoBase64(): string {
+  try {
+    // Try multiple possible paths for Firebase Functions environment
+    const possiblePaths = [
+      path.join(__dirname, '../assets/images/guestbuddy-new-logo-white.svg'),
+      path.join(__dirname, 'assets/images/guestbuddy-new-logo-white.svg'),
+      path.join(process.cwd(), 'src/assets/images/guestbuddy-new-logo-white.svg'),
+      path.join(process.cwd(), 'functions/src/assets/images/guestbuddy-new-logo-white.svg'),
+    ];
+
+    let logoBuffer: Buffer | null = null;
+
+    for (const logoPath of possiblePaths) {
+      try {
+        if (fs.existsSync(logoPath)) {
+          logoBuffer = fs.readFileSync(logoPath);
+          console.log('Logo found at:', logoPath);
+          break;
+        }
+      } catch (err) {
+        console.log('Failed to read from:', logoPath, err);
+      }
+    }
+
+    if (!logoBuffer) {
+      console.error('Logo file not found in any of the expected locations');
+      return '';
+    }
+
+    const base64 = logoBuffer.toString('base64');
+    console.log('Logo loaded successfully, base64 length:', base64.length);
+    return `data:image/svg+xml;base64,${base64}`;
+  } catch (error) {
+    console.error('Error reading logo file:', error);
+    // Fallback to text if logo cannot be loaded
+    return '';
+  }
+}
 
 // Create transporter function that accepts credentials
 function createTransporter(smtpUser?: string, smtpPass?: string, smtpHost?: string, smtpPort?: string) {
@@ -61,10 +103,12 @@ export async function sendVerificationEmail(
               margin-bottom: 30px;
             }
             .logo {
-              font-size: 24px;
-              font-weight: bold;
-              color: #2196F3;
-              margin-bottom: 10px;
+              text-align: center;
+              margin-bottom: 20px;
+            }
+            .logo img {
+              max-width: 200px;
+              height: auto;
             }
             .verification-code {
               background-color: #f8f9fa;
@@ -76,8 +120,8 @@ export async function sendVerificationEmail(
               font-size: 32px;
               font-weight: bold;
               letter-spacing: 8px;
-              color: #2196F3;
-              font-family: 'Courier New', monospace;
+              color: #333333;
+              font-family: Arial, sans-serif;
             }
             .instructions {
               background-color: #e3f2fd;
@@ -115,7 +159,16 @@ export async function sendVerificationEmail(
         <body>
           <div class="container">
             <div class="header">
-              <div class="logo">GuestBuddy</div>
+              <div class="logo">
+                ${(() => {
+                  const logoBase64 = getLogoBase64();
+                  if (logoBase64) {
+                    return `<img src="${logoBase64}" alt="GuestBuddy" />`;
+                  } else {
+                    return '<div style="font-size: 24px; font-weight: bold; color: #2196F3;">GuestBuddy</div>';
+                  }
+                })()}
+              </div>
               <h1>Verify Your Email Address</h1>
             </div>
             
@@ -144,7 +197,7 @@ export async function sendVerificationEmail(
             
             <div class="footer">
               <p>This email was sent to ${toEmail}</p>
-              <p>© 2024 GuestBuddy. All rights reserved.</p>
+              <p>© 2025 GuestBuddy. All rights reserved.</p>
               <p>If you didn't create this account, please contact support immediately.</p>
             </div>
           </div>
@@ -236,10 +289,12 @@ export async function sendResendVerificationEmail(
               margin-bottom: 30px;
             }
             .logo {
-              font-size: 24px;
-              font-weight: bold;
-              color: #2196F3;
-              margin-bottom: 10px;
+              text-align: center;
+              margin-bottom: 20px;
+            }
+            .logo img {
+              max-width: 200px;
+              height: auto;
             }
             .verification-code {
               background-color: #f8f9fa;
@@ -251,8 +306,8 @@ export async function sendResendVerificationEmail(
               font-size: 32px;
               font-weight: bold;
               letter-spacing: 8px;
-              color: #2196F3;
-              font-family: 'Courier New', monospace;
+              color: #333333;
+              font-family: Arial, sans-serif;
             }
             .instructions {
               background-color: #e3f2fd;
@@ -281,7 +336,16 @@ export async function sendResendVerificationEmail(
         <body>
           <div class="container">
             <div class="header">
-              <div class="logo">GuestBuddy</div>
+              <div class="logo">
+                ${(() => {
+                  const logoBase64 = getLogoBase64();
+                  if (logoBase64) {
+                    return `<img src="${logoBase64}" alt="GuestBuddy" />`;
+                  } else {
+                    return '<div style="font-size: 24px; font-weight: bold; color: #2196F3;">GuestBuddy</div>';
+                  }
+                })()}
+              </div>
               <h1>New Verification Code</h1>
             </div>
             
@@ -310,7 +374,7 @@ export async function sendResendVerificationEmail(
             
             <div class="footer">
               <p>This email was sent to ${toEmail}</p>
-              <p>© 2024 GuestBuddy. All rights reserved.</p>
+              <p>© 2025 GuestBuddy. All rights reserved.</p>
             </div>
           </div>
         </body>
