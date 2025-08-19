@@ -19,6 +19,7 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 13. **checkExistingUser** - Check if a user exists with the given phone number (first step of table booking)
 14. **bookTable** - Book a table for an event (second step of table booking, requires user choice)
 15. **sendSmsNotification** - Send SMS notifications for booking confirmations or reminders
+16. **updateTable** - Update table information after booking with logging and spending tracking
 
 ## Prerequisites
 
@@ -640,6 +641,115 @@ if (checkResult.result.requiresUserChoice) {
 6. **SMS Parts Tracking**: Captures how many SMS parts were sent (for long messages)
 
 > **Note**: The actual SMS sending is currently logged but not implemented. You'll need to integrate with an SMS service like Twilio or SendGrid.
+
+## Testing the updateTable Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/updateTable`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "eventId": "your-event-id",
+    "layoutName": "VIP",
+    "tableName": "101",
+    "userId": "user-id-optional",
+    "name": "John Doe",
+    "phoneNr": "4808080",
+    "e164Number": "+464808080",
+    "tableLimit": 20000,
+    "tableSpent": 15000,
+    "nrOfGuests": 8,
+    "tableCheckedIn": 6,
+    "comment": "VIP guest with special requirements",
+    "tableTimeFrom": "20:00",
+    "tableTimeTo": "02:00",
+    "tableBookedBy": "Amir Company Ehsani",
+    "tableEmail": "john@example.com",
+    "tableStaff": "Moa",
+    "action": "updated"
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `eventId`, `layoutName`, `tableName` are required
+- `userId` is optional (required for spending tracking)
+- All other fields are optional - only send the fields you want to update
+- `action` defaults to "updated" if not provided
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Table updated successfully",
+    "data": {
+      "tableName": "101",
+      "layoutName": "VIP",
+      "changes": {
+        "name": "John Doe",
+        "tableLimit": 20000,
+        "tableSpent": 15000,
+        "nrOfGuests": 8,
+        "tableCheckedIn": 6,
+        "comment": "VIP guest with special requirements",
+        "tableStaff": "Moa"
+      },
+      "updatedBy": "Amir Company Ehsani",
+      "updatedAt": "2025-08-19T10:30:00.000Z",
+      "logsCount": 5
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **Table Update**: Updates the specified table in the table_lists collection
+2. **Change Detection**: Only updates fields that have actually changed
+3. **Logging**: Creates detailed logs with user information, timestamp, and changes
+4. **Table Summary Update**: Automatically recalculates and updates table summary statistics:
+   - `totalBooked`: Number of tables with bookings
+   - `totalCheckedIn`: Total number of guests checked in
+   - `totalGuests`: Total number of guests across all tables
+   - `totalTableLimit`: Sum of all table spending limits
+   - `totalTableSpent`: Sum of all table spending
+   - `totalTables`: Total number of tables
+5. **Spending Tracking**: If userId is provided and spent amount changed:
+   - Updates user's event spending in `users/{userId}/eventSpending/{eventId}`
+   - Updates company guest spending in `companies/{companyId}/guests/{userId}`
+6. **Audit Trail**: Maintains complete history of all table changes
+
+### Partial Update Example
+
+You can update only specific fields:
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "eventId": "your-event-id",
+    "layoutName": "VIP",
+    "tableName": "101",
+    "userId": "user-id",
+    "tableSpent": 25000,
+    "action": "spending updated"
+  }
+}
+```
+
+This will only update the spent amount and create a log entry with the action "spending updated".
 
 ## Testing the deleteEvent Function
 

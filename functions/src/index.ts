@@ -51,6 +51,7 @@ export const checkInGuest = guestsApi.checkInGuest;
 // Tables API
 export const bookTable = tablesApi.bookTable;
 export const checkExistingUser = tablesApi.checkExistingUser;
+export const updateTable = tablesApi.updateTable;
 
 // Notifications API
 export const sendSmsNotification = notificationsApi.sendSmsNotification;

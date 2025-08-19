@@ -535,3 +535,377 @@ export const checkExistingUser = onCall({
     };
   }
 }); 
+
+// Validation schema for table update
+const updateTableSchema = Joi.object({
+  companyId: Joi.string().required(),
+  eventId: Joi.string().required(),
+  layoutName: Joi.string().required(),
+  tableName: Joi.string().required(),
+  userId: Joi.string().optional(), // Optional for guest updates
+  // Table data fields - using correct database field names
+  name: Joi.string().optional(),
+  phoneNr: Joi.string().optional(),
+  e164Number: Joi.string().optional(),
+  nrOfGuests: Joi.number().optional(),
+  comment: Joi.string().optional(),
+  tableLimit: Joi.number().optional(),
+  tableSpent: Joi.number().optional(),
+  tableCheckedIn: Joi.number().optional(),
+  tableTimeFrom: Joi.string().optional(),
+  tableTimeTo: Joi.string().optional(),
+  tableBookedBy: Joi.string().optional(),
+  tableEmail: Joi.string().optional(),
+  tableStaff: Joi.string().optional(),
+  action: Joi.string().default('updated'),
+});
+
+// Type definitions
+interface UpdateTableData {
+  companyId: string;
+  eventId: string;
+  layoutName: string;
+  tableName: string;
+  userId?: string;
+  // Table data fields - using correct database field names
+  name?: string;
+  phoneNr?: string;
+  e164Number?: string;
+  nrOfGuests?: number;
+  comment?: string;
+  tableLimit?: number;
+  tableSpent?: number;
+  tableCheckedIn?: number;
+  tableTimeFrom?: string;
+  tableTimeTo?: string;
+  tableBookedBy?: string;
+  tableEmail?: string;
+  tableStaff?: string;
+  action?: string;
+}
+
+/**
+ * Update table summary statistics based on ALL layouts in the event
+ * @param companyId Company ID
+ * @param eventId Event ID
+ */
+async function updateTableSummary(companyId: string, eventId: string) {
+  try {
+    // Get reference to table_lists collection
+    const tableListsRef = db.collection('companies')
+      .doc(companyId)
+      .collection('events')
+      .doc(eventId)
+      .collection('table_lists');
+
+    // Get all layout documents
+    const layoutsSnapshot = await tableListsRef.get();
+    
+    // Calculate summary statistics across ALL layouts
+    let totalBooked = 0;
+    let totalCheckedIn = 0;
+    let totalGuests = 0;
+    let totalTableLimit = 0;
+    let totalTableSpent = 0;
+    let totalTables = 0;
+
+    // Process each layout document
+    layoutsSnapshot.docs.forEach((layoutDoc: any) => {
+      if (layoutDoc.exists && layoutDoc.id !== 'tableSummary') {
+        const layoutData = layoutDoc.data();
+        const tables = layoutData?.items || [];
+
+        tables.forEach((table: any) => {
+          // Count booked tables (tables with a name or bookedBy)
+          if (table.name || table.tableBookedBy) {
+            totalBooked++;
+          }
+
+          // Sum up all numeric values
+          totalCheckedIn += table.tableCheckedIn || 0;
+          totalGuests += table.nrOfGuests || 0;
+          totalTableLimit += table.tableLimit || 0;
+          totalTableSpent += table.tableSpent || 0;
+          totalTables++;
+        });
+      }
+    });
+
+    // Update the tableSummary document (separate document in table_lists collection)
+    await tableListsRef.doc('tableSummary').set({
+      lastUpdated: FieldValue.serverTimestamp(),
+      totalBooked: totalBooked,
+      totalCheckedIn: totalCheckedIn,
+      totalGuests: totalGuests,
+      totalTableLimit: totalTableLimit,
+      totalTableSpent: totalTableSpent,
+      totalTables: totalTables,
+    }, { merge: true });
+
+    console.log('Table summary updated for all layouts:', {
+      totalBooked,
+      totalCheckedIn,
+      totalGuests,
+      totalTableLimit,
+      totalTableSpent,
+      totalTables,
+    });
+
+  } catch (error) {
+    console.error('Error updating table summary:', error);
+    // Don't throw error - summary update failure shouldn't break the main function
+  }
+}
+
+/**
+ * Update table information after booking
+ * This function handles:
+ * 1. Updating table data in the table_lists collection
+ * 2. Logging changes with user information and timestamp
+ * 3. Updating user spending information if userId is provided
+ * 4. Updating company guest spending information
+ */
+export const updateTable = onCall({
+  enforceAppCheck: false,
+}, async (request) => {
+  try {
+    // Check if caller is authenticated
+    if (!request.auth) {
+      return {
+        success: false,
+        error: "Unauthorized",
+      };
+    }
+
+    const data = request.data as UpdateTableData;
+
+    // Validate input data
+    const {error} = updateTableSchema.validate(data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Get current user info for logging
+    const currentUser = request.auth;
+    const userId = currentUser.uid;
+    const userData = currentUser.token;
+    
+    // Get user name from token or fetch from Firestore
+    let userName = userData.name || userData.displayName || userId;
+    
+    // If we only have the ID, try to get the user's name from Firestore
+    if (userName === userId) {
+      try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (userDoc.exists) {
+          const userDocData = userDoc.data();
+          const firstName = userDocData?.userFirstName || '';
+          const lastName = userDocData?.userLastName || '';
+          userName = `${firstName} ${lastName}`.trim();
+          if (userName === '') {
+            userName = userId; // Fallback to ID if no name found
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to fetch user name from Firestore:', error);
+        userName = userId; // Fallback to ID
+      }
+    }
+
+    // Get the table_lists document
+    const tableListsRef = db.collection('companies')
+      .doc(data.companyId)
+      .collection('events')
+      .doc(data.eventId)
+      .collection('table_lists')
+      .doc(data.layoutName);
+
+    const tableListsDoc = await tableListsRef.get();
+
+    if (!tableListsDoc.exists) {
+      return {
+        success: false,
+        error: "Table layout not found",
+      };
+    }
+
+    const tableListsData = tableListsDoc.data();
+    const tables = tableListsData?.items || [];
+
+    // Find the specific table to update
+    let tableIndex = -1;
+    let table: any = null;
+
+    for (let i = 0; i < tables.length; i++) {
+      if (tables[i].tableName === data.tableName) {
+        tableIndex = i;
+        table = tables[i];
+        break;
+      }
+    }
+
+    if (tableIndex === -1 || !table) {
+      return {
+        success: false,
+        error: "Table not found",
+      };
+    }
+
+    // Create a map of only changed fields
+    const changesMap: Record<string, any> = {};
+    const updatedTable = { ...table };
+
+    // Check each field for changes
+    const fieldsToCheck = [
+      'name', 'phoneNr', 'e164Number', 'nrOfGuests', 'comment', 'tableLimit',
+      'tableSpent', 'tableCheckedIn', 'tableTimeFrom', 'tableTimeTo', 'tableBookedBy', 
+      'tableEmail', 'tableStaff'
+    ];
+
+    fieldsToCheck.forEach(field => {
+      if (data[field as keyof UpdateTableData] !== undefined) {
+        const oldValue = table[field];
+        const newValue = data[field as keyof UpdateTableData];
+        
+        // Compare values (handle different types)
+        if (oldValue?.toString() !== newValue?.toString()) {
+          changesMap[field] = newValue;
+          updatedTable[field] = newValue;
+        }
+      }
+    });
+
+    // Only proceed if there are actual changes
+    if (Object.keys(changesMap).length === 0) {
+      return {
+        success: true,
+        message: "No changes detected",
+        data: {
+          tableName: data.tableName,
+          changes: {},
+        },
+      };
+    }
+
+    // Initialize logs array if it doesn't exist
+    let existingLogs = table.logs || [];
+    if (!Array.isArray(existingLogs)) {
+      existingLogs = [];
+    }
+
+    // Create new log entry with current timestamp
+    const newLog = {
+      action: data.action || 'updated',
+      userName: userName,
+      timestamp: new Date().toISOString(),
+      changes: changesMap,
+    };
+
+    // Add new log to existing logs
+    existingLogs.push(newLog);
+    updatedTable.logs = existingLogs;
+
+    // Update the table in the array
+    tables[tableIndex] = updatedTable;
+
+    // Update the table_lists document
+    await tableListsRef.update({
+      items: tables,
+    });
+
+    // Update table summary statistics
+    await updateTableSummary(data.companyId, data.eventId);
+
+    // Update user spending information if userId is provided and spent amount changed
+    if (data.userId && changesMap.tableSpent !== undefined) {
+      const newSpent = changesMap.tableSpent;
+      const oldSpent = table.tableSpent || 0;
+      const spentDifference = newSpent - oldSpent;
+
+      if (spentDifference !== 0) {
+        // Update user's event spending
+        const userEventSpendingRef = db.collection('users')
+          .doc(data.userId)
+          .collection('eventSpending')
+          .doc(data.eventId);
+
+        const userEventSpendingDoc = await userEventSpendingRef.get();
+
+        if (userEventSpendingDoc.exists) {
+          const userEventData = userEventSpendingDoc.data();
+          const currentSpent = userEventData?.spent || 0;
+          const currentTotalSpent = userEventData?.totalSpent || 0;
+
+          await userEventSpendingRef.update({
+            spent: currentSpent + spentDifference,
+            totalSpent: currentTotalSpent + spentDifference,
+            lastSpent: newSpent,
+            lastUpdated: FieldValue.serverTimestamp(),
+          });
+        } else {
+          // Create new event spending record
+          await userEventSpendingRef.set({
+            spent: spentDifference,
+            totalSpent: spentDifference,
+            lastSpent: newSpent,
+            lastUpdated: FieldValue.serverTimestamp(),
+          });
+        }
+
+        // Update company guest spending
+        const companyGuestRef = db.collection('companies')
+          .doc(data.companyId)
+          .collection('guests')
+          .doc(data.userId);
+
+        const companyGuestDoc = await companyGuestRef.get();
+
+        if (companyGuestDoc.exists) {
+          const companyGuestData = companyGuestDoc.data();
+          const currentSpent = companyGuestData?.spent || 0;
+          const currentTotalSpent = companyGuestData?.totalSpent || 0;
+
+          await companyGuestRef.update({
+            spent: currentSpent + spentDifference,
+            totalSpent: currentTotalSpent + spentDifference,
+            lastSpent: newSpent,
+            lastUpdated: FieldValue.serverTimestamp(),
+          });
+        } else {
+          // Create new company guest record
+          await companyGuestRef.set({
+            spent: spentDifference,
+            totalSpent: spentDifference,
+            lastSpent: newSpent,
+            lastUpdated: FieldValue.serverTimestamp(),
+            userId: data.userId,
+          });
+        }
+      }
+    }
+
+    return {
+      success: true,
+      message: "Table updated successfully",
+      data: {
+        tableName: data.tableName,
+        layoutName: data.layoutName,
+        changes: changesMap,
+        updatedBy: userName,
+        updatedAt: new Date().toISOString(),
+        logsCount: existingLogs.length,
+      },
+    };
+
+  } catch (error: any) {
+    console.error("Error updating table:", error);
+    
+    return {
+      success: false,
+      error: `Failed to update table: ${error.message}`,
+    };
+  }
+}); 
