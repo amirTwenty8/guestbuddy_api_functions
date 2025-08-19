@@ -72,6 +72,14 @@ Authorization: Bearer <firebase-id-token>
 - **updateGuest** - Callable function to update an existing guest's details with summary recalculation
 - **checkInGuest** - Callable function to check in guests or edit check-in counts with rapid tapping support
 
+### Tables API
+
+- **bookTable** - Callable function to book a table for an event with user creation/updates and guest spending tracking
+
+### Notifications API
+
+- **sendSmsNotification** - Callable function to send SMS confirmation or schedule reminder notifications
+
 ### Storage API
 
 - **getUploadSignedUrl** - Callable function to generate a signed URL for file uploads

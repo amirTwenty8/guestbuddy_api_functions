@@ -16,6 +16,9 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 10. **createAccount** - Create a new user account with Firebase Auth and Firestore data
 11. **verifyEmail** - Verify email with 6-digit verification code
 12. **resendVerificationEmail** - Resend verification email to user
+13. **checkExistingUser** - Check if a user exists with the given phone number (first step of table booking)
+14. **bookTable** - Book a table for an event (second step of table booking, requires user choice)
+15. **sendSmsNotification** - Send SMS notifications for booking confirmations or reminders
 
 ## Prerequisites
 
@@ -290,6 +293,353 @@ The response will only include the fields that were updated:
 ```
 
 > **Note**: The `changes` object is only included when `tableLayouts` is provided in the request.
+
+## Testing the Two-Step Table Booking Process
+
+The table booking process now uses a two-step approach to handle existing users properly:
+
+### Step 1: Check for Existing User
+
+**Function**: `checkExistingUser`
+
+#### Request Details
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/checkExistingUser`
+- **Method**: POST
+
+#### Request Body
+```json
+{
+  "data": {
+    "phoneNumber": "+46732010328"
+  }
+}
+```
+
+**OR with email (optional):**
+```json
+{
+  "data": {
+    "email": "john@example.com"
+  }
+}
+```
+
+**OR with both (optional):**
+```json
+{
+  "data": {
+    "phoneNumber": "+46732010328",
+    "email": "john@example.com"
+  }
+}
+```
+
+> **Note**: When both `phoneNumber` and `email` are provided, the function searches by phone number first. If no user is found by phone number, it then searches by email. This ensures phone number matches take priority.
+
+#### Response if User Found
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Existing user found",
+    "requiresUserChoice": true,
+    "existingUser": {
+      "userId": "existing-user-id",
+      "name": "John Doe",
+      "email": "john@real.com",
+      "phoneNumber": "721842142",
+      "e164Number": "+46732010328"
+    },
+    "choices": [
+      "A - Use existing user: John Doe",
+      "B - Cancel and change phone number"
+    ]
+  }
+}
+```
+
+#### Response if No User Found
+```json
+{
+  "result": {
+    "success": true,
+    "message": "No existing user found",
+    "requiresUserChoice": false,
+    "existingUser": null,
+    "choices": []
+  }
+}
+```
+
+### Step 2: Book Table (with User Choice)
+
+**Function**: `bookTable`
+
+#### Request Details
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/bookTable`
+- **Method**: POST
+
+#### Option A: Use Existing User
+```json
+{
+  "data": {
+    "userId": "existing-user-id",  // Use the userId from step 1
+    "companyId": "Z640gK6OvfiuDRx069ht",
+    "eventId": "41e745f0-490e-4fe2-b1b2-f0b30babcb59",
+    "tableId": "Ti79EGnkyqANxiQbe3OM",
+    "tableName": "101",
+    "guestName": "Jason test",  // This will be ignored, user's real name used
+    "phoneNumber": "+46732010328",  // This will be ignored, user's real phone used
+    "email": "js@test.se",  // This will be ignored, user's real email used
+    "nrOfGuests": 10,
+    "tableLimit": 10000,
+    "tableSpent": 0,
+    "tableTimeFrom": "20:00",
+    "tableTimeTo": "02:00",
+    "comment": "VIP guest",
+    "tableBookedBy": "Amir"
+  }
+}
+```
+
+#### Option B: Create New User
+```json
+{
+  "data": {
+    "userId": "new_user",  // Special flag to create new user
+    "companyId": "Z640gK6OvfiuDRx069ht",
+    "eventId": "41e745f0-490e-4fe2-b1b2-f0b30babcb59",
+    "tableId": "Ti79EGnkyqANxiQbe3OM",
+    "tableName": "101",
+    "guestName": "Jason test",  // This will be used for new user
+    "phoneNumber": "+46732010328",  // This will be used for new user
+    "email": "js@test.se",  // This will be used for new user
+    "nrOfGuests": 10,
+    "tableLimit": 10000,
+    "tableSpent": 0,
+    "tableTimeFrom": "20:00",
+    "tableTimeTo": "02:00",
+    "comment": "VIP guest",
+    "tableBookedBy": "Amir"
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `eventId`, `tableId`, `tableName` are required
+- `tableId` must be a valid Firestore document ID (e.g., "Ti79EGnkyqANxiQbe3OM")
+- `userId` is required and must be either:
+  - A valid existing user ID from step 1, or
+  - A string starting with "new_" to create a new user
+- `nrOfGuests` is required and must be at least 1
+- `tableLimit`, `tableSpent` are optional and must be non-negative integers
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Table booked successfully",
+    "data": {
+      "tableId": "Ti79EGnkyqANxiQbe3OM",
+      "tableName": "101",
+      "layoutName": "VIP",
+      "userId": "actual-user-id",
+      // ACTUAL DATA SAVED TO DATABASE:
+      "guestName": "John Doe", // From user database, not request
+      "phoneNumber": "+46732010328", // From user database, not request
+      "localPhoneNumber": "721842142", // From user database, not request
+      "email": "john@real.com", // From user database, not request
+      "nrOfGuests": 10,
+      "tableLimit": 10000,
+      "tableSpent": 0,
+      "tableTimeFrom": "20:00",
+      "tableTimeTo": "02:00",
+      "comment": "VIP guest",
+      "bookedBy": "Amir",
+      // SHOWS WHETHER EXISTING USER DATA WAS USED:
+      "userDataUsed": {
+        "userFirstName": "John",
+        "userLastName": "Doe",
+        "userEmail": "john@real.com",
+        "userPhoneNumber": "721842142",
+        "userE164Number": "+46732010328"
+      }
+    }
+  }
+}
+```
+
+### What the Functions Do
+
+#### checkExistingUser
+1. **Phone Number Search**: Searches for existing users by E.164 and local phone number formats
+2. **Email Search**: Optionally searches for existing users by email address
+3. **Priority**: Phone number search takes precedence over email search
+4. **User Choice**: Returns user data and choices if a match is found
+5. **No Side Effects**: Only checks, doesn't create or modify anything
+
+#### bookTable
+1. **User Validation**: Verifies the provided userId exists or creates new user
+2. **Table Booking**: Books the specified table with guest information
+3. **Data Consistency**: Uses existing user data when available, prevents duplicates
+4. **Guest Spending**: Updates guest spending data in both company and user collections
+5. **Logging**: Adds booking action to table's logs array
+6. **ID Consistency**: Guest document ID in `companies/{companyId}/guests/{userId}` matches the user document ID in `users/{userId}`
+
+### Implementation Flow for Other Projects
+
+```typescript
+// Step 1: Check for existing user
+// You can search by phone number, email, or both
+const checkResponse = await fetch('/checkExistingUser', {
+  method: 'POST',
+  body: JSON.stringify({
+    data: { 
+      phoneNumber: '+46732010328',
+      email: 'john@example.com'  // Optional
+    }
+  })
+});
+
+const checkResult = await checkResponse.json();
+
+if (checkResult.result.requiresUserChoice) {
+  // Show user choice dialog
+  const choice = await showUserChoiceDialog(checkResult.result.choices);
+  
+  if (choice === 'A') {
+    // Use existing user
+    const bookResponse = await fetch('/bookTable', {
+      method: 'POST',
+      body: JSON.stringify({
+        data: {
+          userId: checkResult.result.existingUser.userId,
+          // ... other booking data
+        }
+      })
+    });
+  } else if (choice === 'B') {
+    // Let user change phone number
+    // Go back to step 1
+  }
+} else {
+  // No existing user, create new one
+  const bookResponse = await fetch('/bookTable', {
+    method: 'POST',
+    body: JSON.stringify({
+      data: {
+        userId: 'new_user',
+        // ... other booking data
+      }
+    })
+  });
+}
+```
+
+## Testing the sendSmsNotification Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/sendSmsNotification`
+- **Method**: POST
+
+### Request Body (Confirmation)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "eventId": "your-event-id",
+    "phoneNumber": "+1234567890",
+    "guestName": "John Doe",
+    "tableName": "Table 1",
+    "notificationType": "confirmation",
+    "message": "Hi John Doe! Your table Table 1 has been booked for VIP Night at 20:00. We look forward to seeing you! - GuestBuddy"
+  }
+}
+```
+
+### Request Body (Reminder)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "eventId": "your-event-id",
+    "phoneNumber": "+1234567890",
+    "guestName": "John Doe",
+    "tableName": "Table 1",
+    "notificationType": "reminder",
+    "message": "Hi John Doe! Reminder: You have a table Table 1 booked for VIP Night at 20:00 today. See you soon! - GuestBuddy",
+    "reminderTime": "2025-08-19T12:00:00Z"
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `eventId`, `phoneNumber`, `guestName`, `tableName`, `message` are required
+- `phoneNumber` must be in E.164 format (+1234567890)
+- `notificationType` must be either "confirmation" or "reminder"
+- `message` can be any length (46elks will automatically split long messages)
+- `eventName`, `eventDateTime`, `timeFrom`, `reminderTime` are optional
+
+### Expected Response (Confirmation)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "SMS confirmation sent successfully",
+    "data": {
+      "smsId": "generated-sms-id",
+      "phoneNumber": "+1234567890",
+      "guestName": "John Doe",
+      "tableName": "Table 1",
+      "notificationType": "confirmation",
+      "message": "Hi John Doe! Your table Table 1 has been booked for VIP Night at 20:00. We look forward to seeing you! - GuestBuddy",
+      "status": "sent",
+      "smsParts": 1,
+      "totalSmsCount": 1
+    }
+  }
+}
+```
+
+### Expected Response (Reminder - Scheduled)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "SMS reminder scheduled successfully",
+    "data": {
+      "smsId": "generated-sms-id",
+      "phoneNumber": "+1234567890",
+      "guestName": "John Doe",
+      "tableName": "Table 1",
+      "notificationType": "reminder",
+      "message": "Hi John Doe! Reminder: You have a table Table 1 booked for VIP Night at 20:00 today. See you soon! - GuestBuddy",
+      "status": "pending",
+      "scheduledFor": "2025-08-19T12:00:00.000Z"
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **Custom Messages**: Uses the message provided by the user for company-specific customization
+2. **SMS Storage**: Saves SMS notification to database for tracking
+3. **Scheduling**: Handles immediate sending or future scheduling for reminders
+4. **Logging**: Creates a log entry for the SMS action
+5. **Status Tracking**: Tracks SMS delivery status (pending/sent/failed)
+6. **SMS Parts Tracking**: Captures how many SMS parts were sent (for long messages)
+
+> **Note**: The actual SMS sending is currently logged but not implemented. You'll need to integrate with an SMS service like Twilio or SendGrid.
 
 ## Testing the deleteEvent Function
 

@@ -1,5 +1,5 @@
-import {onCall, onRequest} from "firebase-functions/v2/https";
-import {getFirestore} from "firebase-admin/firestore";
+import {onRequest} from "firebase-functions/v2/https";
+import {getFirestore, FieldValue} from "firebase-admin/firestore";
 import {handleApiError} from "../../utils/error-handler";
 import * as express from "express";
 import {authenticateUser} from "../../middleware/auth";
@@ -223,7 +223,7 @@ app.post("/messages/:conversationId", async (req, res) => {
       lastMessage: message,
       lastUpdated: new Date(),
       [`unreadCount${senderType === "user" ? "Company" : "User"}`]: 
-        db.FieldValue.increment(1),
+        FieldValue.increment(1),
     });
     
     return res.status(201).json({
@@ -318,7 +318,14 @@ app.post("/bookings", async (req, res) => {
     }
     
     // Get user and company info
-    const userDoc = await db.collection("users").doc(req.user?.uid).get();
+    if (!req.user?.uid) {
+      return res.status(401).json({
+        success: false,
+        error: "User not authenticated",
+      });
+    }
+    
+    const userDoc = await db.collection("users").doc(req.user.uid).get();
     const companyDoc = await db.collection("companies").doc(companyId).get();
     
     if (!userDoc.exists || !companyDoc.exists) {
@@ -398,14 +405,13 @@ app.post("/bookings", async (req, res) => {
     await db.collection("conversations").doc(conversationId).update({
       lastMessage: messageData.message,
       lastUpdated: new Date(),
-      unreadCountCompany: db.FieldValue.increment(1),
+      unreadCountCompany: FieldValue.increment(1),
     });
     
     return res.status(201).json({
       success: true,
       data: {
         bookingId: bookingRef.id,
-        conversationId,
         ...bookingData,
       },
     });
@@ -515,7 +521,7 @@ app.put("/bookings/:bookingId/status", async (req, res) => {
     await db.collection("conversations").doc(bookingData.conversationId).update({
       lastMessage: message,
       lastUpdated: new Date(),
-      unreadCountUser: db.FieldValue.increment(1),
+      unreadCountUser: FieldValue.increment(1),
     });
     
     return res.status(200).json({

@@ -15,6 +15,8 @@ import * as dataApi from "./api/data";
 import * as storageApi from "./api/storage";
 import * as eventsApi from "./api/events";
 import * as guestsApi from "./api/guests";
+import * as tablesApi from "./api/tables";
+import * as notificationsApi from "./api/notifications";
 
 // Export all functions
 export const users = usersApi.users;
@@ -45,3 +47,10 @@ export const saveGuestDraft = guestsApi.saveGuestDraft;
 export const clearGuestDraft = guestsApi.clearGuestDraft;
 export const updateGuest = guestsApi.updateGuest;
 export const checkInGuest = guestsApi.checkInGuest;
+
+// Tables API
+export const bookTable = tablesApi.bookTable;
+export const checkExistingUser = tablesApi.checkExistingUser;
+
+// Notifications API
+export const sendSmsNotification = notificationsApi.sendSmsNotification;
