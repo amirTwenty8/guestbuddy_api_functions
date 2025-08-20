@@ -826,36 +826,24 @@ export const updateTable = onCall({
       const spentDifference = newSpent - oldSpent;
 
       if (spentDifference !== 0) {
-        // Update user's event spending
-        const userEventSpendingRef = db.collection('users')
-          .doc(data.userId)
-          .collection('eventSpending')
-          .doc(data.eventId);
+        // Update user's event spending (map field on user document)
+        const userRef = db.collection('users').doc(data.userId);
+        const userDoc = await userRef.get();
 
-        const userEventSpendingDoc = await userEventSpendingRef.get();
+        if (userDoc.exists) {
+          const userData = userDoc.data();
+          const currentEventSpent = userData?.eventSpending?.[data.eventId]?.spent || 0;
 
-        if (userEventSpendingDoc.exists) {
-          const userEventData = userEventSpendingDoc.data();
-          const currentSpent = userEventData?.spent || 0;
-          const currentTotalSpent = userEventData?.totalSpent || 0;
-
-          await userEventSpendingRef.update({
-            spent: currentSpent + spentDifference,
-            totalSpent: currentTotalSpent + spentDifference,
+          // Update the specific event in the eventSpending map
+          await userRef.update({
+            [`eventSpending.${data.eventId}.spent`]: currentEventSpent + spentDifference,
+            [`eventSpending.${data.eventId}.lastUpdated`]: FieldValue.serverTimestamp(),
+            totalSpent: (userData?.totalSpent || 0) + spentDifference,
             lastSpent: newSpent,
-            lastUpdated: FieldValue.serverTimestamp(),
-          });
-        } else {
-          // Create new event spending record
-          await userEventSpendingRef.set({
-            spent: spentDifference,
-            totalSpent: spentDifference,
-            lastSpent: newSpent,
-            lastUpdated: FieldValue.serverTimestamp(),
           });
         }
 
-        // Update company guest spending
+        // Update company guest spending (document in companies/{companyId}/guests/{userId})
         const companyGuestRef = db.collection('companies')
           .doc(data.companyId)
           .collection('guests')
@@ -865,11 +853,12 @@ export const updateTable = onCall({
 
         if (companyGuestDoc.exists) {
           const companyGuestData = companyGuestDoc.data();
-          const currentSpent = companyGuestData?.spent || 0;
+          const currentEventSpent = companyGuestData?.eventSpending?.[data.eventId]?.spent || 0;
           const currentTotalSpent = companyGuestData?.totalSpent || 0;
 
           await companyGuestRef.update({
-            spent: currentSpent + spentDifference,
+            [`eventSpending.${data.eventId}.spent`]: currentEventSpent + spentDifference,
+            [`eventSpending.${data.eventId}.lastUpdated`]: FieldValue.serverTimestamp(),
             totalSpent: currentTotalSpent + spentDifference,
             lastSpent: newSpent,
             lastUpdated: FieldValue.serverTimestamp(),
@@ -877,7 +866,12 @@ export const updateTable = onCall({
         } else {
           // Create new company guest record
           await companyGuestRef.set({
-            spent: spentDifference,
+            eventSpending: {
+              [data.eventId]: {
+                spent: spentDifference,
+                lastUpdated: FieldValue.serverTimestamp(),
+              }
+            },
             totalSpent: spentDifference,
             lastSpent: newSpent,
             lastUpdated: FieldValue.serverTimestamp(),
