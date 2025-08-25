@@ -20,6 +20,8 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 14. **bookTable** - Book a table for an event (second step of table booking, requires user choice)
 15. **sendSmsNotification** - Send SMS notifications for booking confirmations or reminders
 16. **updateTable** - Update table information after booking with logging and spending tracking
+17. **cancelReservation** - Cancel a table reservation and remove all guest data except staff
+18. **resellTable** - Re-sell a table during an event while preserving historical data
 
 ## Prerequisites
 
@@ -750,6 +752,181 @@ You can update only specific fields:
 ```
 
 This will only update the spent amount and create a log entry with the action "spending updated".
+
+## Testing the cancelReservation Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/cancelReservation`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "eventId": "your-event-id",
+    "layoutName": "VIP",
+    "tableName": "101"
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `eventId`, `layoutName`, `tableName` are required
+- The table must be currently reserved (have a userId)
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Reservation cancelled successfully",
+    "data": {
+      "tableName": "101",
+      "layoutName": "VIP",
+      "cancelledBy": "Amir Company Ehsani",
+      "cancelledAt": "2025-08-19T15:30:00.000Z",
+      "removedData": {
+        "userId": "user-id-123",
+        "name": "John Doe",
+        "phoneNr": "4808080",
+        "e164Number": "+464808080",
+        "tableEmail": "john@example.com",
+        "nrOfGuests": 8,
+        "tableLimit": 20000,
+        "tableSpent": 15000,
+        "comment": "VIP guest"
+      },
+      "logsCount": 5
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **Complete Data Removal**: Removes ALL guest data from the table:
+   - `userId`, `name`, `phoneNr`, `e164Number`, `tableEmail`
+   - `nrOfGuests`, `tableLimit`, `tableSpent`, `tableCheckedIn`
+   - `tableTimeFrom`, `tableTimeTo`, `tableBookedBy`, `comment`
+2. **Staff Preservation**: Keeps only the `tableStaff` field intact
+3. **Event Spending Cleanup**: Removes the event from user's `eventSpending` map
+4. **Company Guest Cleanup**: Removes the event from company guest's `eventSpending` map
+5. **Table Summary Update**: Recalculates and updates table summary statistics
+6. **Detailed Logging**: Creates comprehensive log entry with all removed data
+7. **Audit Trail**: Maintains complete history of the cancellation
+
+### Error Response (Table Not Reserved)
+
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Table is not reserved"
+  }
+}
+```
+
+## Testing the resellTable Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/resellTable`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "eventId": "your-event-id",
+    "layoutName": "VIP",
+    "tableName": "101"
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `eventId`, `layoutName`, `tableName` are required
+- The table must be currently reserved (have a userId)
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Table resold successfully",
+    "data": {
+      "tableName": "101",
+      "layoutName": "VIP",
+      "resoldBy": "Amir Company Ehsani",
+      "resoldAt": "2025-08-19T15:30:00.000Z",
+      "removedData": {
+        "userId": "user-id-123",
+        "name": "John Doe",
+        "phoneNr": "4808080",
+        "e164Number": "+464808080",
+        "tableEmail": "john@example.com",
+        "nrOfGuests": 8,
+        "tableLimit": 20000,
+        "tableSpent": 15000,
+        "comment": "VIP guest"
+      },
+      "logsCount": 5,
+      "note": "Event spending data and table summary remain unchanged for historical tracking"
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **Complete Data Removal**: Removes ALL guest data from the table (same as cancelReservation):
+   - `userId`, `name`, `phoneNr`, `e164Number`, `tableEmail`
+   - `nrOfGuests`, `tableLimit`, `tableSpent`, `tableCheckedIn`
+   - `tableTimeFrom`, `tableTimeTo`, `tableBookedBy`, `comment`
+2. **Staff Preservation**: Keeps only the `tableStaff` field intact
+3. **Historical Data Preservation**: 
+   - Does NOT remove event from user's `eventSpending` map
+   - Does NOT remove event from company guest's `eventSpending` map
+   - Does NOT update table summary statistics
+4. **Detailed Logging**: Creates comprehensive log entry with all removed data
+5. **Audit Trail**: Maintains complete history of the resale
+
+### Key Differences from cancelReservation
+
+| Feature | cancelReservation | resellTable |
+|---------|-------------------|-------------|
+| **Removes guest data** | ✅ | ✅ |
+| **Keeps staff** | ✅ | ✅ |
+| **Removes from user spending** | ✅ | ❌ |
+| **Removes from company guest spending** | ✅ | ❌ |
+| **Updates tableSummary** | ✅ | ❌ |
+| **Use case** | Pre-event cancellation | During-event resale |
+
+### Error Response (Table Not Reserved)
+
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Table is not reserved"
+  }
+}
+```
 
 ## Testing the deleteEvent Function
 

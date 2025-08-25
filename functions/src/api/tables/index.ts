@@ -540,7 +540,7 @@ export const checkExistingUser = onCall({
 const updateTableSchema = Joi.object({
   companyId: Joi.string().required(),
   eventId: Joi.string().required(),
-  layoutName: Joi.string().required(),
+  layoutId: Joi.string().required(),
   tableName: Joi.string().required(),
   userId: Joi.string().optional(), // Optional for guest updates
   // Table data fields - using correct database field names
@@ -564,7 +564,7 @@ const updateTableSchema = Joi.object({
 interface UpdateTableData {
   companyId: string;
   eventId: string;
-  layoutName: string;
+  layoutId: string;
   tableName: string;
   userId?: string;
   // Table data fields - using correct database field names
@@ -721,7 +721,7 @@ export const updateTable = onCall({
       .collection('events')
       .doc(data.eventId)
       .collection('table_lists')
-      .doc(data.layoutName);
+      .doc(data.layoutId);
 
     const tableListsDoc = await tableListsRef.get();
 
@@ -886,7 +886,7 @@ export const updateTable = onCall({
       message: "Table updated successfully",
       data: {
         tableName: data.tableName,
-        layoutName: data.layoutName,
+        layoutId: data.layoutId,
         changes: changesMap,
         updatedBy: userName,
         updatedAt: new Date().toISOString(),
@@ -902,4 +902,431 @@ export const updateTable = onCall({
       error: `Failed to update table: ${error.message}`,
     };
   }
-}); 
+});
+
+// Validation schema for cancel reservation
+const cancelReservationSchema = Joi.object({
+  companyId: Joi.string().required(),
+  eventId: Joi.string().required(),
+  layoutId: Joi.string().required(),
+  tableName: Joi.string().required(),
+});
+
+// Type definitions for cancel reservation
+interface CancelReservationData {
+  companyId: string;
+  eventId: string;
+  layoutId: string;
+  tableName: string;
+}
+
+/**
+ * Cancel a table reservation
+ * This function:
+ * 1. Removes guest data from the table (userId, name, phone, email, nrOfGuests, tableLimit)
+ * 2. Keeps other fields like staff, comment, etc.
+ * 3. Removes the event from user's eventSpending
+ * 4. Removes the event from company guest's eventSpending
+ * 5. Updates tableSummary to reflect the cancellation
+ */
+export const cancelReservation = onCall({
+  enforceAppCheck: false,
+}, async (request) => {
+  try {
+    // Check if caller is authenticated
+    if (!request.auth) {
+      return {
+        success: false,
+        error: "Unauthorized",
+      };
+    }
+
+    const data = request.data as CancelReservationData;
+
+    // Validate input data
+    const {error} = cancelReservationSchema.validate(data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Get current user info for logging
+    const currentUser = request.auth;
+    const userName = `${currentUser.token.name || 'Unknown User'}`;
+
+    // Get the table layout document
+    const tableListsRef = db.collection('companies')
+      .doc(data.companyId)
+      .collection('events')
+      .doc(data.eventId)
+      .collection('table_lists')
+      .doc(data.layoutId);
+
+    const tableListsDoc = await tableListsRef.get();
+
+    if (!tableListsDoc.exists) {
+      return {
+        success: false,
+        error: "Table layout not found",
+      };
+    }
+
+    const tableListsData = tableListsDoc.data();
+    const items = tableListsData?.items || [];
+
+    // Find the specific table
+    let table: any = null;
+    let tableIndex = -1;
+
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].tableName === data.tableName) {
+        table = items[i];
+        tableIndex = i;
+        break;
+      }
+    }
+
+    if (!table) {
+      return {
+        success: false,
+        error: "Table not found",
+      };
+    }
+
+    // Check if table has a reservation to cancel
+    if (!table.userId) {
+      return {
+        success: false,
+        error: "Table is not reserved",
+      };
+    }
+
+    // Store the data we're removing for logging and spending updates
+    const removedData = {
+      userId: table.userId,
+      name: table.name,
+      phoneNr: table.phoneNr,
+      e164Number: table.e164Number,
+      tableEmail: table.tableEmail,
+      nrOfGuests: table.nrOfGuests,
+      tableLimit: table.tableLimit,
+      tableSpent: table.tableSpent || 0,
+    };
+
+    // Remove all data except staff from table
+    const updatedTable = {
+      ...table,
+      userId: null,
+      name: null,
+      phoneNr: null,
+      e164Number: null,
+      tableEmail: null,
+      nrOfGuests: null,
+      tableLimit: null,
+      tableSpent: null,
+      tableCheckedIn: null,
+      tableTimeFrom: null,
+      tableTimeTo: null,
+      tableBookedBy: null,
+      comment: null,
+      // Keep only staff field
+      tableStaff: table.tableStaff, // Preserve staff assignment
+    };
+
+    // Create log entry
+    const newLog = {
+      action: "reservation cancelled",
+      userName: userName,
+      timestamp: new Date().toISOString(),
+      changes: {
+        removed: {
+          userId: removedData.userId,
+          name: removedData.name,
+          phoneNr: removedData.phoneNr,
+          e164Number: removedData.e164Number,
+          tableEmail: removedData.tableEmail,
+          nrOfGuests: removedData.nrOfGuests,
+          tableLimit: removedData.tableLimit,
+          tableSpent: removedData.tableSpent,
+          comment: table.comment,
+        }
+      }
+    };
+
+    // Add log to table
+    const existingLogs = updatedTable.logs || [];
+    updatedTable.logs = [...existingLogs, newLog];
+
+    // Update the table in the items array
+    items[tableIndex] = updatedTable;
+
+    // Update the table layout document
+    await tableListsRef.update({
+      items: items
+    });
+
+    // Update table summary to reflect the cancellation
+    await updateTableSummary(data.companyId, data.eventId);
+
+    // Remove event from user's eventSpending if userId exists
+    if (removedData.userId) {
+      const userRef = db.collection('users').doc(removedData.userId);
+      const userDoc = await userRef.get();
+
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        const currentEventSpent = userData?.eventSpending?.[data.eventId]?.spent || 0;
+
+        // Remove the event from eventSpending map
+        const updatedEventSpending = { ...userData?.eventSpending };
+        delete updatedEventSpending[data.eventId];
+
+        // Calculate new total spent
+        const newTotalSpent = (userData?.totalSpent || 0) - currentEventSpent;
+
+        await userRef.update({
+          eventSpending: updatedEventSpending,
+          totalSpent: Math.max(0, newTotalSpent), // Ensure it doesn't go negative
+          lastSpent: userData?.lastSpent || 0,
+        });
+      }
+
+      // Remove event from company guest's eventSpending
+      const companyGuestRef = db.collection('companies')
+        .doc(data.companyId)
+        .collection('guests')
+        .doc(removedData.userId);
+
+      const companyGuestDoc = await companyGuestRef.get();
+
+      if (companyGuestDoc.exists) {
+        const companyGuestData = companyGuestDoc.data();
+        const currentEventSpent = companyGuestData?.eventSpending?.[data.eventId]?.spent || 0;
+
+        // Remove the event from eventSpending map
+        const updatedEventSpending = { ...companyGuestData?.eventSpending };
+        delete updatedEventSpending[data.eventId];
+
+        // Calculate new total spent
+        const newTotalSpent = (companyGuestData?.totalSpent || 0) - currentEventSpent;
+
+        await companyGuestRef.update({
+          eventSpending: updatedEventSpending,
+          totalSpent: Math.max(0, newTotalSpent), // Ensure it doesn't go negative
+          lastSpent: companyGuestData?.lastSpent || 0,
+        });
+      }
+    }
+
+    return {
+      success: true,
+      message: "Reservation cancelled successfully",
+      data: {
+        tableName: data.tableName,
+        layoutId: data.layoutId,
+        cancelledBy: userName,
+        cancelledAt: new Date().toISOString(),
+        removedData: removedData,
+        logsCount: updatedTable.logs.length,
+      }
+    };
+
+  } catch (error: any) {
+    console.error("Error cancelling reservation:", error);
+    return {
+      success: false,
+      error: `Failed to cancel reservation: ${error.message}`,
+    };
+  }
+});
+
+// Validation schema for resell table
+const resellTableSchema = Joi.object({
+  companyId: Joi.string().required(),
+  eventId: Joi.string().required(),
+  layoutId: Joi.string().required(),
+  tableName: Joi.string().required(),
+});
+
+// Type definitions for resell table
+interface ResellTableData {
+  companyId: string;
+  eventId: string;
+  layoutId: string;
+  tableName: string;
+}
+
+/**
+ * Re-sell a table during an event
+ * This function:
+ * 1. Removes guest data from the table (userId, name, phone, email, nrOfGuests, tableLimit)
+ * 2. Keeps other fields like staff, comment, etc.
+ * 3. Does NOT remove event from user's or company guest's eventSpending
+ * 4. Does NOT update tableSummary (keeps existing data)
+ */
+export const resellTable = onCall({
+  enforceAppCheck: false,
+}, async (request) => {
+  try {
+    // Check if caller is authenticated
+    if (!request.auth) {
+      return {
+        success: false,
+        error: "Unauthorized",
+      };
+    }
+
+    const data = request.data as ResellTableData;
+
+    // Validate input data
+    const {error} = resellTableSchema.validate(data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Get current user info for logging
+    const currentUser = request.auth;
+    const userName = `${currentUser.token.name || 'Unknown User'}`;
+
+    // Get the table layout document
+    const tableListsRef = db.collection('companies')
+      .doc(data.companyId)
+      .collection('events')
+      .doc(data.eventId)
+      .collection('table_lists')
+      .doc(data.layoutId);
+
+    const tableListsDoc = await tableListsRef.get();
+
+    if (!tableListsDoc.exists) {
+      return {
+        success: false,
+        error: "Table layout not found",
+      };
+    }
+
+    const tableListsData = tableListsDoc.data();
+    const items = tableListsData?.items || [];
+
+    // Find the specific table
+    let table: any = null;
+    let tableIndex = -1;
+
+    for (let i = 0; i < tableListsData?.items?.length || 0; i++) {
+      if (items[i].tableName === data.tableName) {
+        table = items[i];
+        tableIndex = i;
+        break;
+      }
+    }
+
+    if (!table) {
+      return {
+        success: false,
+        error: "Table not found",
+      };
+    }
+
+    // Check if table has a reservation to resell
+    if (!table.userId) {
+      return {
+        success: false,
+        error: "Table is not reserved",
+      };
+    }
+
+    // Store the data we're removing for logging
+    const removedData = {
+      userId: table.userId,
+      name: table.name,
+      phoneNr: table.phoneNr,
+      e164Number: table.e164Number,
+      tableEmail: table.tableEmail,
+      nrOfGuests: table.nrOfGuests,
+      tableLimit: table.tableLimit,
+      tableSpent: table.tableSpent || 0,
+    };
+
+    // Remove all data except staff from table
+    const updatedTable = {
+      ...table,
+      userId: null,
+      name: null,
+      phoneNr: null,
+      e164Number: null,
+      tableEmail: null,
+      nrOfGuests: null,
+      tableLimit: null,
+      tableSpent: null,
+      tableCheckedIn: null,
+      tableTimeFrom: null,
+      tableTimeTo: null,
+      tableBookedBy: null,
+      comment: null,
+      // Keep only staff field
+      tableStaff: table.tableStaff, // Preserve staff assignment
+    };
+
+    // Create log entry
+    const newLog = {
+      action: "table resold",
+      userName: userName,
+      timestamp: new Date().toISOString(),
+      changes: {
+        removed: {
+          userId: removedData.userId,
+          name: removedData.name,
+          phoneNr: removedData.phoneNr,
+          e164Number: removedData.e164Number,
+          tableEmail: removedData.tableEmail,
+          nrOfGuests: removedData.nrOfGuests,
+          tableLimit: removedData.tableLimit,
+          tableSpent: removedData.tableSpent,
+          comment: table.comment,
+        }
+      }
+    };
+
+    // Add log to table
+    const existingLogs = updatedTable.logs || [];
+    updatedTable.logs = [...existingLogs, newLog];
+
+    // Update the table in the items array
+    items[tableIndex] = updatedTable;
+
+    // Update the table layout document
+    await tableListsRef.update({
+      items: items
+    });
+
+    // Note: We do NOT update tableSummary or remove eventSpending data
+    // This keeps the historical data intact for the event
+
+    return {
+      success: true,
+      message: "Table resold successfully",
+      data: {
+        tableName: data.tableName,
+        layoutId: data.layoutId,
+        resoldBy: userName,
+        resoldAt: new Date().toISOString(),
+        removedData: removedData,
+        logsCount: updatedTable.logs.length,
+        note: "Event spending data and table summary remain unchanged for historical tracking",
+      }
+    };
+
+  } catch (error: any) {
+    console.error("Error reselling table:", error);
+    return {
+      success: false,
+      error: `Failed to resell table: ${error.message}`,
+    };
+  }
+});
+
