@@ -345,10 +345,7 @@ export const bookTable = onCall({
       },
     };
 
-    // Add genres if available
-    if (Object.keys(companySpecificGenres).length > 0) {
-      guestData.visitedGenres = companySpecificGenres;
-    }
+
 
     // Update or create guest in company collection
     await db.collection('companies')
@@ -370,7 +367,7 @@ export const bookTable = onCall({
             lastUpdated: FieldValue.serverTimestamp(),
           }
         },
-        visitedGenres: companySpecificGenres,
+
       }, {merge: true});
 
 
@@ -881,6 +878,194 @@ export const updateTable = onCall({
       }
     }
 
+    // Update visitedGenres when guests are checked in (actual attendance)
+    if (data.userId && changesMap.tableCheckedIn !== undefined) {
+      const newCheckedIn = changesMap.tableCheckedIn;
+      const oldCheckedIn = table.tableCheckedIn || 0;
+      
+      console.log(`Checking visitedGenres update: userId=${data.userId}, newCheckedIn=${newCheckedIn}, oldCheckedIn=${oldCheckedIn}`);
+      
+      // Only update visitedGenres if guests are being checked in (not checked out)
+      if (newCheckedIn > oldCheckedIn) {
+        console.log('Guests are being checked in, updating visitedGenres...');
+        
+        // Get event genres
+        const eventDoc = await db.collection('companies')
+          .doc(data.companyId)
+          .collection('events')
+          .doc(data.eventId)
+          .get();
+
+        console.log(`Event document exists: ${eventDoc.exists}`);
+        
+        if (eventDoc.exists) {
+          const eventData = eventDoc.data();
+          console.log('Event data keys:', Object.keys(eventData || {}));
+          console.log('Event data:', eventData);
+          
+          // Check both possible field names for genres
+          const eventGenres = eventData?.eventGenre || eventData?.genres || [];
+          console.log('Event genres found:', eventGenres);
+          
+          // Prepare company-specific genre counts with event tracking
+          const companySpecificGenres: Record<string, any> = {};
+          for (const genre of eventGenres) {
+            // Handle both string genres and object genres with id/name
+            let genreName = '';
+            if (typeof genre === 'string' && genre.trim() !== '') {
+              genreName = genre.trim();
+            } else if (genre && typeof genre === 'object' && genre.name) {
+              genreName = genre.name;
+            }
+            
+            if (genreName) {
+              companySpecificGenres[genreName] = {
+                nrOfTimes: 1,
+                eventIds: [data.eventId]  // Track which events they've attended
+              };
+              console.log(`Added genre: ${genreName} for event: ${data.eventId}`);
+            } else {
+              console.log(`Skipped invalid genre:`, genre);
+            }
+          }
+          
+          console.log('Final companySpecificGenres:', companySpecificGenres);
+
+          if (Object.keys(companySpecificGenres).length > 0) {
+            console.log('Updating visitedGenres for user and company guest...');
+            
+            // Update user's visitedGenres
+            const userRef = db.collection('users').doc(data.userId);
+            const userDoc = await userRef.get();
+
+            if (userDoc.exists) {
+              const userData = userDoc.data();
+              const existingGenres = userData?.visitedGenres || {};
+              console.log('User existing genres:', existingGenres);
+              
+              // Merge existing genres with new ones, checking for duplicate events
+              const mergedGenres = {...existingGenres};
+              for (const [genre, newData] of Object.entries(companySpecificGenres)) {
+                console.log(`Processing genre: ${genre}, newData:`, newData);
+                
+                if (mergedGenres[genre]) {
+                  console.log(`Existing genre data:`, mergedGenres[genre]);
+                  
+                  // Check if user has already attended this event for this genre
+                  const existingEventIds = mergedGenres[genre].eventIds || [];
+                  console.log(`Existing event IDs for ${genre}:`, existingEventIds);
+                  
+                  if (!existingEventIds.includes(data.eventId)) {
+                    // New event for this genre, increment count and add event ID
+                    const currentNrOfTimes = parseInt(mergedGenres[genre].nrOfTimes) || 0;
+                    const newNrOfTimes = parseInt(newData.nrOfTimes) || 1;
+                    const totalNrOfTimes = currentNrOfTimes + newNrOfTimes;
+                    
+                    mergedGenres[genre].nrOfTimes = totalNrOfTimes;
+                    mergedGenres[genre].eventIds = [...existingEventIds, data.eventId];
+                    console.log(`Incremented ${genre} to ${totalNrOfTimes} (new event: ${data.eventId})`);
+                  } else {
+                    console.log(`User already attended ${genre} at event ${data.eventId}, skipping increment`);
+                  }
+                } else {
+                  // New genre, add it
+                  mergedGenres[genre] = {
+                    nrOfTimes: parseInt(newData.nrOfTimes) || 1,
+                    eventIds: newData.eventIds || [data.eventId]
+                  };
+                  console.log(`Added new genre: ${genre} with event ${data.eventId}`);
+                }
+                
+                console.log(`Final merged data for ${genre}:`, mergedGenres[genre]);
+              }
+              
+              console.log('User merged genres:', mergedGenres);
+
+              await userRef.update({
+                visitedGenres: mergedGenres,
+              });
+              console.log('User visitedGenres updated successfully');
+            } else {
+              console.log('User document not found');
+            }
+
+            // Update company guest's visitedGenres
+            const companyGuestRef = db.collection('companies')
+              .doc(data.companyId)
+              .collection('guests')
+              .doc(data.userId);
+
+            const companyGuestDoc = await companyGuestRef.get();
+
+            if (companyGuestDoc.exists) {
+              const companyGuestData = companyGuestDoc.data();
+              const existingGenres = companyGuestData?.visitedGenres || {};
+              console.log('Company guest existing genres:', existingGenres);
+              
+              // Merge existing genres with new ones, checking for duplicate events
+              const mergedGenres = {...existingGenres};
+              for (const [genre, newData] of Object.entries(companySpecificGenres)) {
+                console.log(`Processing genre: ${genre}, newData:`, newData);
+                
+                if (mergedGenres[genre]) {
+                  console.log(`Existing genre data:`, mergedGenres[genre]);
+                  
+                  // Check if user has already attended this event for this genre
+                  const existingEventIds = mergedGenres[genre].eventIds || [];
+                  console.log(`Existing event IDs for ${genre}:`, existingEventIds);
+                  
+                  if (!existingEventIds.includes(data.eventId)) {
+                    // New event for this genre, increment count and add event ID
+                    const currentNrOfTimes = parseInt(mergedGenres[genre].nrOfTimes) || 0;
+                    const newNrOfTimes = parseInt(newData.nrOfTimes) || 1;
+                    const totalNrOfTimes = currentNrOfTimes + newNrOfTimes;
+                    
+                    mergedGenres[genre].nrOfTimes = totalNrOfTimes;
+                    mergedGenres[genre].eventIds = [...existingEventIds, data.eventId];
+                    console.log(`Incremented ${genre} to ${totalNrOfTimes} (new event: ${data.eventId})`);
+                  } else {
+                    console.log(`User already attended ${genre} at event ${data.eventId}, skipping increment`);
+                  }
+                } else {
+                  // New genre, add it
+                  mergedGenres[genre] = {
+                    nrOfTimes: parseInt(newData.nrOfTimes) || 1,
+                    eventIds: newData.eventIds || [data.eventId]
+                  };
+                  console.log(`Added new genre: ${genre} with event ${data.eventId}`);
+                }
+                
+                console.log(`Final merged data for ${genre}:`, mergedGenres[genre]);
+              }
+              
+              console.log('Company guest merged genres:', mergedGenres);
+
+              await companyGuestRef.update({
+                visitedGenres: mergedGenres,
+              });
+              console.log('Company guest visitedGenres updated successfully');
+            } else {
+              console.log('Company guest document not found, creating new one...');
+              // Create new company guest record with visitedGenres
+              await companyGuestRef.set({
+                visitedGenres: companySpecificGenres,
+                userId: data.userId,
+              }, {merge: true});
+              console.log('New company guest document created with visitedGenres');
+            }
+          } else {
+            console.log('No valid genres found to update');
+          }
+        } else {
+          console.log('Event document not found');
+        }
+      } else {
+        console.log('No check-in increase detected, skipping visitedGenres update');
+      }
+    } else {
+      console.log('No userId or tableCheckedIn change detected, skipping visitedGenres update');
+    }
+
     return {
       success: true,
       message: "Table updated successfully",
@@ -1031,9 +1216,12 @@ export const cancelReservation = onCall({
       tableTimeTo: null,
       tableBookedBy: null,
       comment: null,
-      // Keep only staff field
-      tableStaff: table.tableStaff, // Preserve staff assignment
     };
+    
+    // Only add tableStaff if it has a value (not undefined)
+    if (table.tableStaff !== undefined) {
+      updatedTable.tableStaff = table.tableStaff;
+    }
 
     // Create log entry
     const newLog = {
@@ -1268,9 +1456,12 @@ export const resellTable = onCall({
       tableTimeTo: null,
       tableBookedBy: null,
       comment: null,
-      // Keep only staff field
-      tableStaff: table.tableStaff, // Preserve staff assignment
     };
+    
+    // Only add tableStaff if it has a value (not undefined)
+    if (table.tableStaff !== undefined) {
+      updatedTable.tableStaff = table.tableStaff;
+    }
 
     // Create log entry
     const newLog = {
