@@ -21,6 +21,9 @@ import * as notificationsApi from "./api/notifications";
 // Export all functions
 export const users = usersApi.users;
 export const createUserProfile = usersApi.createUserProfile;
+export const addUserToCompany = usersApi.addUserToCompany;
+export const editUserInCompany = usersApi.editUserInCompany;
+export const removeUserFromCompany = usersApi.removeUserFromCompany;
 
 export const verifyToken = authApi.verifyToken;
 export const revokeUserSessions = authApi.revokeUserSessions;

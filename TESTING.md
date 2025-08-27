@@ -22,6 +22,9 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 16. **updateTable** - Update table information after booking with logging and spending tracking
 17. **cancelReservation** - Cancel a table reservation and remove all guest data except staff
 18. **resellTable** - Re-sell a table during an event while preserving historical data
+19. **addUserToCompany** - Add users to a company, either by finding existing users or creating new ones
+20. **editUserInCompany** - Edit user information and change their role within a company
+21. **removeUserFromCompany** - Remove users from a company and manage their business mode
 
 ## Prerequisites
 
@@ -1626,6 +1629,561 @@ The function automatically processes phone numbers based on the selected country
   }
 }
 ```
+
+## Testing the addUserToCompany Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/addUserToCompany`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body (New User)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "email": "newuser@example.com",
+    "firstName": "John",
+    "lastName": "Doe",
+    "password": "securePassword123",
+    "role": "editors"
+  }
+}
+```
+
+### Request Body (Existing User)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "email": "existinguser@example.com",
+    "firstName": "Jane",
+    "lastName": "Smith",
+    "role": "promotors"
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `email`, `firstName`, `lastName`, `role` are required
+- `password` is required only for new users (not existing users)
+- `role` must be one of: `admins`, `editors`, `promotors`, `tableStaff`, `staff`
+- `firstName` and `lastName` must be 1-50 characters
+- `password` must be 8-128 characters (if provided)
+- `email` must be a valid email format
+
+### Expected Response (New User)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "User created and added to company successfully",
+    "data": {
+      "userId": "57Z4Ji3HBNcvT1RjRucR5n6b3dZ2",
+      "email": "newuser@example.com",
+      "firstName": "John",
+      "lastName": "Doe",
+      "role": "editors",
+      "companyId": "your-company-id",
+      "isNewUser": true,
+      "addedBy": "Amir Company Ehsani",
+      "addedAt": "2025-08-27T12:31:18.233Z"
+    }
+  }
+}
+```
+
+### Expected Response (Existing User)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "User added to company successfully",
+    "data": {
+      "userId": "existing-user-id",
+      "email": "existinguser@example.com",
+      "firstName": "Jane",
+      "lastName": "Smith",
+      "role": "promotors",
+      "companyId": "your-company-id",
+      "isNewUser": false,
+      "addedBy": "Amir Company Ehsani",
+      "addedAt": "2025-08-27T12:31:18.233Z"
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **User Detection**: Checks if user exists by email in the `users` collection
+2. **Existing User Handling**: 
+   - Adds `companyId` to user's `companyId` array
+   - Enables `businessMode` for the user
+   - Updates user's `updatedAt` timestamp
+3. **New User Creation**:
+   - Creates new Firebase Auth user with email and password
+   - Creates user document in Firestore with company association
+   - Sets `businessMode` to true and `emailVerified` to false
+4. **Company Role Assignment**:
+   - Adds user ID to the appropriate role array in company document
+   - Supports roles: `admins`, `editors`, `promotors`, `tableStaff`, `staff`
+   - Updates company's `updatedAt` timestamp
+5. **Activity Logging**: Creates log entry in `companies/{companyId}/activityLogs`
+6. **Duplicate Prevention**: Checks for existing memberships and role assignments
+
+### Error Responses
+
+**User already in company:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "User is already a member of this company"
+  }
+}
+```
+
+**User already has role:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "User is already assigned the role: editors"
+  }
+}
+```
+
+**Password required for new user:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Password is required for new users"
+  }
+}
+```
+
+**Company not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Company not found"
+  }
+}
+```
+
+**Firebase Auth errors:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "This email is already registered with Firebase Auth but not found in our database. Please contact support."
+  }
+}
+```
+
+### Role Descriptions
+
+| Role | Description | Array Name |
+|------|-------------|------------|
+| `admins` | Full access to all features and statistics | `admins` |
+| `editors` | Can add and edit events and manage guests and tables | `editors` |
+| `promotors` | Can add and manage events and guests (restricted table access) | `promotors` |
+| `tableStaff` | Can manage tables and check-in | `tableStaff` |
+| `staff` | Basic access to view information and check in guests | `staff` |
+
+### Database Changes
+
+**User Document Updates:**
+- Adds `companyId` to user's `companyId` array
+- Sets `businessMode: true`
+- Updates `updatedAt` timestamp
+
+**Company Document Updates:**
+- Adds user ID to appropriate role array (`admins`, `editors`, etc.)
+- Updates `updatedAt` timestamp
+
+**Activity Log Entry:**
+```json
+{
+  "action": "user_added",
+  "userId": "user-id",
+  "userEmail": "user@example.com",
+  "role": "editors",
+  "addedBy": "Admin User",
+  "timestamp": "2025-08-27T12:31:18.233Z",
+  "isNewUser": true
+}
+```
+
+## Testing the editUserInCompany Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/editUserInCompany`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "userId": "user-id-to-edit",
+    "firstName": "John",
+    "lastName": "Doe",
+    "role": "editors"
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `userId`, `firstName`, `lastName`, `role` are required
+- `role` must be one of: `admins`, `editors`, `promotors`, `tableStaff`, `staff`
+- `firstName` and `lastName` must be 1-50 characters
+- User must be a member of the specified company
+
+### Expected Response (Name and Role Changed)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "User updated successfully",
+    "data": {
+      "userId": "user-id",
+      "email": "user@example.com",
+      "firstName": "John",
+      "lastName": "Doe",
+      "role": "editors",
+      "companyId": "your-company-id",
+      "previousRole": "staff",
+      "nameChanged": true,
+      "roleChanged": true,
+      "editedBy": "Amir Company Ehsani",
+      "editedAt": "2025-08-27T12:31:18.233Z"
+    }
+  }
+}
+```
+
+### Expected Response (Only Name Changed)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "User updated successfully",
+    "data": {
+      "userId": "user-id",
+      "email": "user@example.com",
+      "firstName": "John",
+      "lastName": "Doe",
+      "role": "editors",
+      "companyId": "your-company-id",
+      "previousRole": "editors",
+      "nameChanged": true,
+      "roleChanged": false,
+      "editedBy": "Amir Company Ehsani",
+      "editedAt": "2025-08-27T12:31:18.233Z"
+    }
+  }
+}
+```
+
+### Expected Response (Only Role Changed)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "User updated successfully",
+    "data": {
+      "userId": "user-id",
+      "email": "user@example.com",
+      "firstName": "John",
+      "lastName": "Doe",
+      "role": "admins",
+      "companyId": "your-company-id",
+      "previousRole": "editors",
+      "nameChanged": false,
+      "roleChanged": true,
+      "editedBy": "Amir Company Ehsani",
+      "editedAt": "2025-08-27T12:31:18.233Z"
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **User Validation**: Checks if user exists and is a member of the specified company
+2. **Change Detection**: Compares new values with existing values to detect actual changes
+3. **Name Updates**: Updates `userFirstName` and `userLastName` in the user document if changed
+4. **Role Management**: 
+   - Removes user from current role array
+   - Adds user to new role array
+   - Updates company's `updatedAt` timestamp
+5. **Activity Logging**: Creates detailed log entry with all changes and previous values
+6. **Audit Trail**: Tracks who made the changes and when
+
+### Error Responses
+
+**User not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "User not found"
+  }
+}
+```
+
+**User not in company:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "User is not a member of this company"
+  }
+}
+```
+
+**Company not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Company not found"
+  }
+}
+```
+
+**No changes detected:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "No changes detected"
+  }
+}
+```
+
+### Role Descriptions
+
+| Role | Description | Array Name |
+|------|-------------|------------|
+| `admins` | Full access to all features and statistics | `admins` |
+| `editors` | Can add and edit events and manage guests and tables | `editors` |
+| `promotors` | Can add and manage events and guests (restricted table access) | `promotors` |
+| `tableStaff` | Can manage tables and check-in | `tableStaff` |
+| `staff` | Basic access to view information and check in guests | `staff` |
+
+### Database Changes
+
+**User Document Updates (if name changed):**
+- Updates `userFirstName` and `userLastName`
+- Updates `updatedAt` timestamp
+
+**Company Document Updates (if role changed):**
+- Removes user ID from previous role array
+- Adds user ID to new role array
+- Updates `updatedAt` timestamp
+
+**Activity Log Entry:**
+```json
+{
+  "action": "user_edited",
+  "userId": "user-id",
+  "userEmail": "user@example.com",
+  "previousRole": "staff",
+  "newRole": "editors",
+  "nameChanged": true,
+  "roleChanged": true,
+  "previousName": "Jane Smith",
+  "newName": "John Doe",
+  "editedBy": "Admin User",
+  "timestamp": "2025-08-27T12:31:18.233Z"
+}
+```
+
+## Testing the removeUserFromCompany Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/removeUserFromCompany`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "userId": "user-id-to-remove"
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId` and `userId` are required
+- User must be a member of the specified company
+- Cannot remove yourself if you're the only admin in the company
+
+### Expected Response (User Removed Successfully)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "User removed from company successfully",
+    "data": {
+      "userId": "user-id",
+      "email": "user@example.com",
+      "companyId": "your-company-id",
+      "previousRole": "editors",
+      "businessModeRemains": true,
+      "remainingCompanies": 2,
+      "removedBy": "Amir Company Ehsani",
+      "removedAt": "2025-08-27T12:31:18.233Z"
+    }
+  }
+}
+```
+
+### Expected Response (User Removed - No Companies Left)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "User removed from company successfully",
+    "data": {
+      "userId": "user-id",
+      "email": "user@example.com",
+      "companyId": "your-company-id",
+      "previousRole": "staff",
+      "businessModeRemains": false,
+      "remainingCompanies": 0,
+      "removedBy": "Amir Company Ehsani",
+      "removedAt": "2025-08-27T12:31:18.233Z"
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **User Validation**: Checks if user exists and is a member of the specified company
+2. **Admin Protection**: Prevents removing yourself if you're the only admin in the company
+3. **Complete Role Removal**: Removes user from all role arrays (`admins`, `editors`, `promotors`, `tableStaff`, `staff`)
+4. **Company Association**: Removes `companyId` from user's `companyId` array
+5. **Business Mode Management**: 
+   - If user has other companies → `businessMode: true`
+   - If user has no companies left → `businessMode: false`
+6. **Activity Logging**: Creates detailed log entry with removal details
+7. **Audit Trail**: Tracks who removed the user and when
+
+### Error Responses
+
+**User not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "User not found"
+  }
+}
+```
+
+**User not in company:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "User is not a member of this company"
+  }
+}
+```
+
+**Company not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Company not found"
+  }
+}
+```
+
+**Cannot remove yourself as only admin:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Cannot remove yourself. You are the only admin in this company."
+  }
+}
+```
+
+### Business Mode Logic
+
+The function automatically manages the user's `businessMode` based on their remaining company associations:
+
+| Remaining Companies | Business Mode | Description |
+|-------------------|---------------|-------------|
+| 0 companies | `false` | User has no company associations |
+| 1+ companies | `true` | User still belongs to other companies |
+
+### Database Changes
+
+**Company Document Updates:**
+- Removes user ID from all role arrays (`admins`, `editors`, `promotors`, `tableStaff`, `staff`)
+- Updates `updatedAt` timestamp
+
+**User Document Updates:**
+- Removes `companyId` from user's `companyId` array
+- Updates `businessMode` based on remaining companies
+- Updates `updatedAt` timestamp
+
+**Activity Log Entry:**
+```json
+{
+  "action": "user_removed",
+  "userId": "user-id",
+  "userEmail": "user@example.com",
+  "previousRole": "editors",
+  "removedBy": "Admin User",
+  "timestamp": "2025-08-27T12:31:18.233Z",
+  "businessModeRemains": true,
+  "remainingCompanies": 2
+}
+```
+
+### Security Features
+
+- **Self-Removal Protection**: Cannot remove yourself if you're the only admin
+- **Role-Based Access**: Only admins can remove users (enforced by client-side logic)
+- **Complete Cleanup**: Removes user from all role arrays to prevent orphaned permissions
+- **Audit Trail**: Comprehensive logging of all removal actions
 
 ## Data Structure Requirements
 
