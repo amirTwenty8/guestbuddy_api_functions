@@ -66,6 +66,16 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
     const userData = request.auth.token;
     const userName = userData.name || userId;
     
+    // Extract data from request - handle both direct data and wrapped data
+    let requestData: any;
+    if (request.data && request.data.data) {
+      // Data is wrapped in a "data" property
+      requestData = request.data.data;
+    } else {
+      // Data is at root level
+      requestData = request.data;
+    }
+
     // Validate request data
     const {
       eventId: providedEventId,
@@ -77,10 +87,10 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
       categories,
       clubCardIds,
       eventGenre,
-    } = request.data;
+    } = requestData;
 
     // Validate input data
-    const {error} = createEventSchema.validate(request.data);
+    const {error} = createEventSchema.validate(requestData);
     if (error) {
       return {
         success: false,
@@ -943,6 +953,689 @@ export const deleteEvent = onCall({enforceAppCheck: false}, async (request) => {
     return {
       success: false,
       error: "Failed to delete event",
+    };
+  }
+}); 
+
+// Validation schema for creating event ticket
+const createEventTicketSchema = Joi.object({
+  companyId: Joi.string().required(),
+  eventId: Joi.string().required(),
+  ticketData: Joi.object({
+    totalTickets: Joi.number().integer().min(1).required(),
+    ticketName: Joi.string().required(),
+    ticketPrice: Joi.number().min(0).required(),
+    ticketDescription: Joi.string().optional(),
+    ticketImage: Joi.string().optional(),
+    saleStartDate: Joi.string().isoDate().optional(),
+    saleEndDate: Joi.string().isoDate().optional(),
+    freeTicket: Joi.boolean().default(false),
+    buyerPaysAdminFee: Joi.boolean().default(true),
+  }).required(),
+});
+
+// Type definitions for creating event ticket
+interface CreateEventTicketData {
+  companyId: string;
+  eventId: string;
+  ticketData: {
+    totalTickets: number;
+    ticketName: string;
+    ticketPrice: number;
+    ticketDescription?: string;
+    ticketImage?: string;
+    saleStartDate?: string;
+    saleEndDate?: string;
+    freeTicket?: boolean;
+    buyerPaysAdminFee?: boolean;
+  };
+}
+
+/**
+ * Create a ticket for an event
+ * This function:
+ * 1. Creates a ticket document with the specified ID
+ * 2. Initializes or updates the ticket summary
+ * 3. Manages ticket counts and revenue tracking
+ */
+export const createEventTicket = onCall({
+  enforceAppCheck: false,
+}, async (request) => {
+  try {
+    // Check if caller is authenticated
+    if (!request.auth) {
+      return {
+        success: false,
+        error: "Unauthorized",
+      };
+    }
+
+    // Extract data from request - handle both direct data and wrapped data
+    let data: CreateEventTicketData;
+    if (request.data && request.data.data) {
+      // Data is wrapped in a "data" property
+      data = request.data.data as CreateEventTicketData;
+    } else {
+      // Data is at root level
+      data = request.data as CreateEventTicketData;
+    }
+
+    // Validate input data
+    const {error} = createEventTicketSchema.validate(data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Get current user info for logging
+    const currentUser = request.auth;
+    let userName = 'Unknown User';
+    
+    // Try to get user name from Firestore
+    try {
+      const currentUserDoc = await db.collection('users').doc(currentUser.uid).get();
+      if (currentUserDoc.exists) {
+        const userData = currentUserDoc.data();
+        userName = `${userData?.userFirstName || ''} ${userData?.userLastName || ''}`.trim() || 'Unknown User';
+      }
+    } catch (error) {
+      console.log('Could not fetch current user name from Firestore:', error);
+    }
+
+    // Check if company exists
+    const companyRef = db.collection('companies').doc(data.companyId);
+    const companyDoc = await companyRef.get();
+
+    if (!companyDoc.exists) {
+      return {
+        success: false,
+        error: "Company not found",
+      };
+    }
+
+    // Check if event exists
+    const eventRef = db.collection('companies').doc(data.companyId).collection('events').doc(data.eventId);
+    const eventDoc = await eventRef.get();
+
+    if (!eventDoc.exists) {
+      return {
+        success: false,
+        error: "Event not found",
+      };
+    }
+
+    // Generate a unique ticket ID
+    const ticketId = uuidv4();
+
+    // Check if ticket already exists (shouldn't happen with UUID, but safety check)
+    const ticketRef = db.collection('companies')
+      .doc(data.companyId)
+      .collection('events')
+      .doc(data.eventId)
+      .collection('event_tickets')
+      .doc(ticketId);
+
+    const ticketDoc = await ticketRef.get();
+
+    if (ticketDoc.exists) {
+      return {
+        success: false,
+        error: "Ticket with this ID already exists",
+      };
+    }
+
+    // Initialize or update ticket summary
+    const summaryRef = db.collection('companies')
+      .doc(data.companyId)
+      .collection('events')
+      .doc(data.eventId)
+      .collection('event_tickets')
+      .doc('ticketSummary');
+
+    const summaryDoc = await summaryRef.get();
+
+    if (!summaryDoc.exists) {
+      // Create new summary
+      await summaryRef.set({
+        totalNrTickets: data.ticketData.totalTickets,
+        totalNrSoldTickets: 0,
+        totalNrTicketsLeft: data.ticketData.totalTickets,
+        totalTicketsRevenue: 0,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      console.log(`Created new ticket summary for event ${data.eventId}`);
+    } else {
+      // Update existing summary
+      await summaryRef.update({
+        totalNrTickets: FieldValue.increment(data.ticketData.totalTickets),
+        totalNrTicketsLeft: FieldValue.increment(data.ticketData.totalTickets),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      console.log(`Updated ticket summary for event ${data.eventId}`);
+    }
+
+    // Create the ticket document
+    const ticketData: any = {
+      ...data.ticketData,
+      id: ticketId,
+      eventId: data.eventId,
+      createdAt: FieldValue.serverTimestamp(),
+      ticketsLeft: data.ticketData.totalTickets,
+      tickets: [], // Initialize empty tickets array
+      freeTicket: data.ticketData.freeTicket !== undefined ? data.ticketData.freeTicket : false,
+      buyerPaysAdminFee: data.ticketData.buyerPaysAdminFee !== undefined ? data.ticketData.buyerPaysAdminFee : true,
+    };
+
+    // Convert date objects to Firestore timestamps if provided
+    if (data.ticketData.saleStartDate) {
+      ticketData.saleStartDate = new Date(data.ticketData.saleStartDate);
+    }
+    if (data.ticketData.saleEndDate) {
+      ticketData.saleEndDate = new Date(data.ticketData.saleEndDate);
+    }
+
+    await ticketRef.set(ticketData);
+    console.log(`Created ticket ${ticketId} for event ${data.eventId}`);
+
+    // Log the action
+    await db.collection('companies')
+      .doc(data.companyId)
+      .collection('events')
+      .doc(data.eventId)
+      .collection('activityLogs')
+      .add({
+        action: 'ticket_created',
+        ticketId: ticketId,
+        ticketName: data.ticketData.ticketName,
+        totalTickets: data.ticketData.totalTickets,
+        ticketPrice: data.ticketData.ticketPrice,
+        createdBy: userName,
+        timestamp: FieldValue.serverTimestamp(),
+      });
+
+    return {
+      success: true,
+      message: "Ticket created successfully",
+      data: {
+        ticketId: ticketId,
+        eventId: data.eventId,
+        companyId: data.companyId,
+        ticketName: data.ticketData.ticketName,
+        totalTickets: data.ticketData.totalTickets,
+        ticketPrice: data.ticketData.ticketPrice,
+        freeTicket: ticketData.freeTicket,
+        buyerPaysAdminFee: ticketData.buyerPaysAdminFee,
+        createdBy: userName,
+        createdAt: new Date().toISOString(),
+      }
+    };
+
+  } catch (error: any) {
+    console.error("Error creating event ticket:", error);
+    
+    return {
+      success: false,
+      error: `Failed to create event ticket: ${error.message}`,
+    };
+  }
+}); 
+
+// Validation schema for updating event ticket
+const updateEventTicketSchema = Joi.object({
+  companyId: Joi.string().required(),
+  eventId: Joi.string().required(),
+  ticketId: Joi.string().required(),
+  ticketData: Joi.object({
+    totalTickets: Joi.number().integer().min(1).optional(),
+    ticketName: Joi.string().optional(),
+    ticketPrice: Joi.number().min(0).optional(),
+    ticketDescription: Joi.string().optional(),
+    ticketImage: Joi.string().optional(),
+    saleStartDate: Joi.string().isoDate().optional(),
+    saleEndDate: Joi.string().isoDate().optional(),
+    freeTicket: Joi.boolean().optional(),
+    buyerPaysAdminFee: Joi.boolean().optional(),
+  }).required(),
+});
+
+// Type definitions for updating event ticket
+interface UpdateEventTicketData {
+  companyId: string;
+  eventId: string;
+  ticketId: string;
+  ticketData: {
+    totalTickets?: number;
+    ticketName?: string;
+    ticketPrice?: number;
+    ticketDescription?: string;
+    ticketImage?: string;
+    saleStartDate?: string;
+    saleEndDate?: string;
+    freeTicket?: boolean;
+    buyerPaysAdminFee?: boolean;
+  };
+}
+
+/**
+ * Update an existing ticket for an event
+ * This function:
+ * 1. Validates the ticket exists
+ * 2. Updates only the provided fields
+ * 3. Adjusts ticket summary if totalTickets changes
+ * 4. Logs the changes for audit trail
+ */
+export const updateEventTicket = onCall({
+  enforceAppCheck: false,
+}, async (request) => {
+  try {
+    console.log('updateEventTicket called with request:', {
+      hasAuth: !!request.auth,
+      hasData: !!request.data,
+      dataKeys: request.data ? Object.keys(request.data) : [],
+      rawData: request.data
+    });
+
+    // Check if caller is authenticated
+    if (!request.auth) {
+      return {
+        success: false,
+        error: "Unauthorized",
+      };
+    }
+
+    // Extract data from request - handle both direct data and wrapped data
+    let data: UpdateEventTicketData;
+    if (request.data && request.data.data) {
+      // Data is wrapped in a "data" property
+      data = request.data.data as UpdateEventTicketData;
+      console.log('Using wrapped data:', data);
+    } else {
+      // Data is at root level
+      data = request.data as UpdateEventTicketData;
+      console.log('Using root data:', data);
+    }
+
+    // Validate input data
+    const {error} = updateEventTicketSchema.validate(data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Get current user info for logging
+    const currentUser = request.auth;
+    let userName = 'Unknown User';
+    
+    // Try to get user name from Firestore
+    try {
+      const currentUserDoc = await db.collection('users').doc(currentUser.uid).get();
+      if (currentUserDoc.exists) {
+        const userData = currentUserDoc.data();
+        userName = `${userData?.userFirstName || ''} ${userData?.userLastName || ''}`.trim() || 'Unknown User';
+      }
+    } catch (error) {
+      console.log('Could not fetch current user name from Firestore:', error);
+    }
+
+    // Check if company exists
+    const companyRef = db.collection('companies').doc(data.companyId);
+    const companyDoc = await companyRef.get();
+
+    if (!companyDoc.exists) {
+      return {
+        success: false,
+        error: "Company not found",
+      };
+    }
+
+    // Check if event exists
+    const eventRef = db.collection('companies').doc(data.companyId).collection('events').doc(data.eventId);
+    const eventDoc = await eventRef.get();
+
+    if (!eventDoc.exists) {
+      return {
+        success: false,
+        error: "Event not found",
+      };
+    }
+
+    // Check if ticket exists
+    const ticketRef = db.collection('companies')
+      .doc(data.companyId)
+      .collection('events')
+      .doc(data.eventId)
+      .collection('event_tickets')
+      .doc(data.ticketId);
+
+    const ticketDoc = await ticketRef.get();
+
+    if (!ticketDoc.exists) {
+      return {
+        success: false,
+        error: "Ticket not found",
+      };
+    }
+
+    const existingTicketData = ticketDoc.data();
+    
+    // Check if there are actual changes
+    const changes: any = {};
+    let hasChanges = false;
+    let totalTicketsChanged = false;
+    let oldTotalTickets = existingTicketData?.totalTickets || 0;
+
+    // Check each field for changes
+    Object.keys(data.ticketData).forEach(key => {
+      const newValue = (data.ticketData as any)[key];
+      const oldValue = existingTicketData?.[key];
+      
+      if (newValue !== undefined && newValue !== oldValue) {
+        changes[key] = {
+          from: oldValue,
+          to: newValue
+        };
+        hasChanges = true;
+        
+        // Track if totalTickets is changing
+        if (key === 'totalTickets') {
+          totalTicketsChanged = true;
+        }
+      }
+    });
+
+    if (!hasChanges) {
+      return {
+        success: false,
+        error: "No changes detected",
+      };
+    }
+
+    // Prepare update data
+    const updateData: any = {
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    // Add changed fields to update data
+    Object.keys(data.ticketData).forEach(key => {
+      const newValue = (data.ticketData as any)[key];
+      if (newValue !== undefined) {
+        updateData[key] = newValue;
+      }
+    });
+
+    // Convert date strings to Date objects if provided
+    if (data.ticketData.saleStartDate) {
+      updateData.saleStartDate = new Date(data.ticketData.saleStartDate);
+    }
+    if (data.ticketData.saleEndDate) {
+      updateData.saleEndDate = new Date(data.ticketData.saleEndDate);
+    }
+
+    // Update the ticket
+    await ticketRef.update(updateData);
+    console.log(`Updated ticket ${data.ticketId} for event ${data.eventId}`);
+
+    // Update ticket summary if totalTickets changed
+    if (totalTicketsChanged) {
+      const newTotalTickets = data.ticketData.totalTickets || 0;
+      const ticketsSold = oldTotalTickets - (existingTicketData?.ticketsLeft || 0);
+      const newTicketsLeft = Math.max(0, newTotalTickets - ticketsSold);
+
+      const summaryRef = db.collection('companies')
+        .doc(data.companyId)
+        .collection('events')
+        .doc(data.eventId)
+        .collection('event_tickets')
+        .doc('ticketSummary');
+
+      await summaryRef.update({
+        totalNrTickets: FieldValue.increment(newTotalTickets - oldTotalTickets),
+        totalNrTicketsLeft: FieldValue.increment(newTicketsLeft - (existingTicketData?.ticketsLeft || 0)),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      // Update ticketsLeft on the ticket document
+      await ticketRef.update({
+        ticketsLeft: newTicketsLeft,
+      });
+
+      console.log(`Updated ticket summary for event ${data.eventId}`);
+    }
+
+    // Log the action
+    await db.collection('companies')
+      .doc(data.companyId)
+      .collection('events')
+      .doc(data.eventId)
+      .collection('activityLogs')
+      .add({
+        action: 'ticket_updated',
+        ticketId: data.ticketId,
+        ticketName: existingTicketData?.ticketName || '',
+        changes: changes,
+        updatedBy: userName,
+        timestamp: FieldValue.serverTimestamp(),
+      });
+
+    return {
+      success: true,
+      message: "Ticket updated successfully",
+      data: {
+        ticketId: data.ticketId,
+        eventId: data.eventId,
+        companyId: data.companyId,
+        changes: changes,
+        updatedBy: userName,
+        updatedAt: new Date().toISOString(),
+      }
+    };
+
+  } catch (error: any) {
+    console.error("Error updating event ticket:", error);
+    
+    return {
+      success: false,
+      error: `Failed to update event ticket: ${error.message}`,
+    };
+  }
+}); 
+
+// Validation schema for removing event ticket
+const removeEventTicketSchema = Joi.object({
+  companyId: Joi.string().required(),
+  eventId: Joi.string().required(),
+  ticketId: Joi.string().required(),
+});
+
+// Type definitions for removing event ticket
+interface RemoveEventTicketData {
+  companyId: string;
+  eventId: string;
+  ticketId: string;
+}
+
+/**
+ * Remove a ticket from an event
+ * This function:
+ * 1. Validates the ticket exists
+ * 2. Removes the ticket document
+ * 3. Updates the ticket summary to reflect the removal
+ * 4. Logs the action for audit trail
+ */
+export const removeEventTicket = onCall({
+  enforceAppCheck: false,
+}, async (request) => {
+  try {
+    console.log('removeEventTicket called with request:', {
+      hasAuth: !!request.auth,
+      hasData: !!request.data,
+      dataKeys: request.data ? Object.keys(request.data) : [],
+      rawData: request.data
+    });
+
+    // Check if caller is authenticated
+    if (!request.auth) {
+      return {
+        success: false,
+        error: "Unauthorized",
+      };
+    }
+
+    // Extract data from request - handle both direct data and wrapped data
+    let data: RemoveEventTicketData;
+    if (request.data && request.data.data) {
+      // Data is wrapped in a "data" property
+      data = request.data.data as RemoveEventTicketData;
+      console.log('Using wrapped data:', data);
+    } else {
+      // Data is at root level
+      data = request.data as RemoveEventTicketData;
+      console.log('Using root data:', data);
+    }
+
+    // Validate input data
+    const {error} = removeEventTicketSchema.validate(data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Get current user info for logging
+    const currentUser = request.auth;
+    let userName = 'Unknown User';
+    
+    // Try to get user name from Firestore
+    try {
+      const currentUserDoc = await db.collection('users').doc(currentUser.uid).get();
+      if (currentUserDoc.exists) {
+        const userData = currentUserDoc.data();
+        userName = `${userData?.userFirstName || ''} ${userData?.userLastName || ''}`.trim() || 'Unknown User';
+      }
+    } catch (error) {
+      console.log('Could not fetch current user name from Firestore:', error);
+    }
+
+    // Check if company exists
+    const companyRef = db.collection('companies').doc(data.companyId);
+    const companyDoc = await companyRef.get();
+
+    if (!companyDoc.exists) {
+      return {
+        success: false,
+        error: "Company not found",
+      };
+    }
+
+    // Check if event exists
+    const eventRef = db.collection('companies').doc(data.companyId).collection('events').doc(data.eventId);
+    const eventDoc = await eventRef.get();
+
+    if (!eventDoc.exists) {
+      return {
+        success: false,
+        error: "Event not found",
+      };
+    }
+
+    // Check if ticket exists and get its data
+    const ticketRef = db.collection('companies')
+      .doc(data.companyId)
+      .collection('events')
+      .doc(data.eventId)
+      .collection('event_tickets')
+      .doc(data.ticketId);
+
+    const ticketDoc = await ticketRef.get();
+
+    if (!ticketDoc.exists) {
+      return {
+        success: false,
+        error: "Ticket not found",
+      };
+    }
+
+    const ticketData = ticketDoc.data();
+    const ticketName = ticketData?.ticketName || 'Unknown Ticket';
+    const totalTickets = ticketData?.totalTickets || 0;
+    const ticketsSold = totalTickets - (ticketData?.ticketsLeft || 0);
+    const ticketsLeft = ticketData?.ticketsLeft || 0;
+
+    // Delete the ticket document
+    await ticketRef.delete();
+    console.log(`Deleted ticket ${data.ticketId} for event ${data.eventId}`);
+
+    // Update ticket summary
+    const summaryRef = db.collection('companies')
+      .doc(data.companyId)
+      .collection('events')
+      .doc(data.eventId)
+      .collection('event_tickets')
+      .doc('ticketSummary');
+
+    const summaryDoc = await summaryRef.get();
+
+    if (summaryDoc.exists) {
+      // Update existing summary
+      await summaryRef.update({
+        totalNrTickets: FieldValue.increment(-totalTickets),
+        totalNrSoldTickets: FieldValue.increment(-ticketsSold),
+        totalNrTicketsLeft: FieldValue.increment(-ticketsLeft),
+        totalTicketsRevenue: FieldValue.increment(-(ticketsSold * (ticketData?.ticketPrice || 0))),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      console.log(`Updated ticket summary for event ${data.eventId}`);
+    } else {
+      console.log(`No ticket summary found for event ${data.eventId}, skipping summary update`);
+    }
+
+    // Log the action
+    await db.collection('companies')
+      .doc(data.companyId)
+      .collection('events')
+      .doc(data.eventId)
+      .collection('activityLogs')
+      .add({
+        action: 'ticket_removed',
+        ticketId: data.ticketId,
+        ticketName: ticketName,
+        totalTickets: totalTickets,
+        ticketsSold: ticketsSold,
+        ticketsLeft: ticketsLeft,
+        ticketPrice: ticketData?.ticketPrice || 0,
+        removedBy: userName,
+        timestamp: FieldValue.serverTimestamp(),
+      });
+
+    return {
+      success: true,
+      message: "Ticket removed successfully",
+      data: {
+        ticketId: data.ticketId,
+        eventId: data.eventId,
+        companyId: data.companyId,
+        ticketName: ticketName,
+        totalTickets: totalTickets,
+        ticketsSold: ticketsSold,
+        ticketsLeft: ticketsLeft,
+        ticketPrice: ticketData?.ticketPrice || 0,
+        removedBy: userName,
+        removedAt: new Date().toISOString(),
+      }
+    };
+
+  } catch (error: any) {
+    console.error("Error removing event ticket:", error);
+    
+    return {
+      success: false,
+      error: `Failed to remove event ticket: ${error.message}`,
     };
   }
 }); 

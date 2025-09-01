@@ -25,6 +25,7 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 19. **addUserToCompany** - Add users to a company, either by finding existing users or creating new ones
 20. **editUserInCompany** - Edit user information and change their role within a company
 21. **removeUserFromCompany** - Remove users from a company and manage their business mode
+22. **createEventTicket** - Create tickets for an event with auto-generated UUID and ticket summary management
 
 ## Prerequisites
 
@@ -2247,3 +2248,212 @@ You can also test callable functions directly from the Firebase Console:
 4. Find your function and click "Test function"
 5. Enter the test data in JSON format
 6. Click "Test function" to execute 
+
+## Testing the createEventTicket Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/createEventTicket`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body (With Image URL)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "eventId": "your-event-id",
+    "ticketData": {
+      "totalTickets": 100,
+      "ticketName": "VIP Ticket",
+      "ticketPrice": 150.00,
+      "ticketDescription": "Premium VIP experience with exclusive access",
+      "ticketCategory": "VIP",
+      "ticketImageUrl": "https://firebasestorage.googleapis.com/v0/b/your-project.appspot.com/o/tickets%2Fevent123%2F1234567890_ticket.jpg?alt=media&token=abc123",
+      "validFrom": "2025-08-01T00:00:00Z",
+      "validTo": "2025-08-31T23:59:59Z",
+      "maxTicketsPerUser": 5,
+      "isActive": true
+    }
+  }
+}
+```
+
+### Request Body (Without Image)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "eventId": "your-event-id",
+    "ticketData": {
+      "totalTickets": 50,
+      "ticketName": "General Admission",
+      "ticketPrice": 75.00,
+      "ticketDescription": "Standard admission ticket",
+      "ticketCategory": "General",
+      "isActive": true
+    }
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `eventId`, `ticketData` are required
+- `ticketData.totalTickets` must be a positive integer (minimum 1)
+- `ticketData.ticketName` and `ticketData.ticketPrice` are required
+- `ticketData.ticketPrice` must be non-negative
+- `ticketData.ticketImageUrl` is optional (any string format)
+- `ticketData.validFrom` and `ticketData.validTo` must be valid ISO dates (if provided)
+- `ticketData.maxTicketsPerUser` must be a positive integer (if provided)
+- `ticketData.isActive` defaults to `true` if not provided
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Ticket created successfully",
+    "data": {
+      "ticketId": "97500513-26fc-4981-9a1d-587f2a30c021",
+      "eventId": "your-event-id",
+      "companyId": "your-company-id",
+      "ticketName": "VIP Ticket",
+      "totalTickets": 100,
+      "ticketPrice": 150.00,
+      "isActive": true,
+      "createdBy": "Amir Company Ehsani",
+      "createdAt": "2025-08-27T12:31:18.233Z"
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **Validation**: Checks if company and event exist
+2. **UUID Generation**: Automatically generates a unique ticket ID (format: `97500513-26fc-4981-9a1d-587f2a30c021`)
+3. **Ticket Summary Management**: 
+   - Creates `ticketSummary` document if it doesn't exist
+   - Updates existing summary with new ticket counts
+4. **Ticket Creation**: Creates ticket document with tracking fields
+5. **Activity Logging**: Creates log entry with ticket creation details
+6. **Audit Trail**: Tracks who created the ticket and when
+
+### Error Responses
+
+**Event not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Event not found"
+  }
+}
+```
+
+**Company not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Company not found"
+  }
+}
+```
+
+**Validation error:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Validation error: \"ticketData.totalTickets\" must be a positive number"
+  }
+}
+```
+
+### Database Structure
+
+**Ticket Document:**
+```json
+{
+  "id": "97500513-26fc-4981-9a1d-587f2a30c021",
+  "totalTickets": 100,
+  "ticketName": "VIP Ticket",
+  "ticketPrice": 150.00,
+  "ticketDescription": "Premium VIP experience",
+  "ticketCategory": "VIP",
+  "ticketImageUrl": "https://firebasestorage.googleapis.com/v0/b/your-project.appspot.com/o/tickets%2Fevent123%2F1234567890_ticket.jpg?alt=media&token=abc123",
+  "validFrom": "2025-08-01T00:00:00Z",
+  "validTo": "2025-08-31T23:59:59Z",
+  "maxTicketsPerUser": 5,
+  "isActive": true,
+  "soldTickets": 0,
+  "revenue": 0,
+  "createdAt": "2025-08-27T12:31:18.233Z",
+  "updatedAt": "2025-08-27T12:31:18.233Z"
+}
+```
+
+**Ticket Summary Document:**
+```json
+{
+  "totalNrTickets": 100,
+  "totalNrSoldTickets": 0,
+  "totalNrTicketsLeft": 100,
+  "totalTicketsRevenue": 0,
+  "createdAt": "2025-08-27T12:31:18.233Z",
+  "updatedAt": "2025-08-27T12:31:18.233Z"
+}
+```
+
+**Activity Log Entry:**
+```json
+{
+  "action": "ticket_created",
+  "ticketId": "97500513-26fc-4981-9a1d-587f2a30c021",
+  "ticketName": "VIP Ticket",
+  "totalTickets": 100,
+  "ticketPrice": 150.00,
+  "createdBy": "Admin User",
+  "timestamp": "2025-08-27T12:31:18.233Z"
+}
+```
+
+### Image Upload Handling
+
+The API accepts `ticketImageUrl` as an optional string. For image uploads, use **Option 1: Client-Side Upload**:
+
+1. **Upload to Firebase Storage** in your app
+2. **Get download URL** from Firebase Storage
+3. **Pass URL** to the API
+
+**Example Implementation:**
+```typescript
+// Upload image to Firebase Storage
+const uploadImage = async (file: File) => {
+  const storageRef = ref(storage, `tickets/${eventId}/${Date.now()}_${file.name}`);
+  await uploadBytes(storageRef, file);
+  return await getDownloadURL(storageRef);
+};
+
+// Call API with image URL
+const ticketData = {
+  ...otherData,
+  ticketImageUrl: await uploadImage(imageFile)
+};
+```
+
+### Key Features
+
+✅ **Auto-Generated UUID** - No need to provide ticket ID  
+✅ **Smart Summary Management** - Automatically creates/updates ticket summary  
+✅ **Flexible Image Handling** - Accepts any string format for image URLs  
+✅ **Revenue Tracking** - Initializes tracking fields for future sales  
+✅ **Activity Logging** - Comprehensive audit trail  
+✅ **Validation** - Ensures data integrity and proper formats

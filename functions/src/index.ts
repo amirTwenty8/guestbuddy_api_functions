@@ -42,6 +42,9 @@ export const deleteFile = storageApi.deleteFile;
 export const createEvent = eventsApi.createEvent;
 export const updateEvent = eventsApi.updateEvent;
 export const deleteEvent = eventsApi.deleteEvent;
+export const createEventTicket = eventsApi.createEventTicket;
+export const updateEventTicket = eventsApi.updateEventTicket;
+export const removeEventTicket = eventsApi.removeEventTicket;
 
 // Guests API
 export const addGuest = guestsApi.addGuest;
