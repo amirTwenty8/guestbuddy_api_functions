@@ -43,3 +43,63 @@ export enum ErrorType {
   NOT_FOUND = "not_found_error",
   SERVER = "server_error",
 }
+
+/**
+ * Landing Page interfaces
+ */
+export interface LandingPageCustomStyles {
+  primaryColor: string;
+  textColor: string;
+  backgroundColor: string;
+}
+
+export interface CreateLandingPageRequest {
+  title: string;
+  description?: string;
+  eventId?: string;
+  guestCategoryId?: string;
+  showTickets?: boolean;
+  enableGuestRegistration?: boolean;
+  isPasswordProtected?: boolean;
+  password?: string;
+  backgroundImageUrl?: string;
+  customStyles?: LandingPageCustomStyles;
+}
+
+export interface LandingPage {
+  id?: string;
+  title: string;
+  description: string;
+  slug: string;
+  eventId: string | null;
+  guestCategoryId: string | null;
+  showTickets: boolean;
+  enableGuestRegistration: boolean;
+  isPasswordProtected: boolean;
+  password: string | null;
+  backgroundImageUrl: string | null;
+  customStyles: LandingPageCustomStyles;
+  companyId: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  isActive: boolean;
+  views: number;
+  conversions: number;
+  url?: string; // Generated URL for the landing page
+}
+
+export interface PublicLandingPage {
+  id: string;
+  title: string;
+  description: string;
+  slug: string;
+  eventId: string | null;
+  showTickets: boolean;
+  enableGuestRegistration: boolean;
+  isPasswordProtected: boolean;
+  backgroundImageUrl: string | null;
+  customStyles: LandingPageCustomStyles;
+  companyId: string;
+  views: number;
+}

@@ -17,6 +17,7 @@ import * as eventsApi from "./api/events";
 import * as guestsApi from "./api/guests";
 import * as tablesApi from "./api/tables";
 import * as notificationsApi from "./api/notifications";
+import * as landingPagesApi from "./api/landing-pages";
 
 // Export all functions
 export const users = usersApi.users;
@@ -63,3 +64,6 @@ export const resellTable = tablesApi.resellTable;
 
 // Notifications API
 export const sendSmsNotification = notificationsApi.sendSmsNotification;
+
+// Landing Pages API
+export const landingPages = landingPagesApi.landingPages;

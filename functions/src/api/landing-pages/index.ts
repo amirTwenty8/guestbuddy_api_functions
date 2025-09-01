@@ -1,0 +1,400 @@
+import {onRequest} from "firebase-functions/v2/https";
+import {getFirestore} from "firebase-admin/firestore";
+import * as express from "express";
+import * as cors from "cors";
+import {authenticateUser} from "../../middleware/auth";
+import {handleApiError} from "../../utils/error-handler";
+import {validateRequest} from "../../utils/validation";
+import * as Joi from "joi";
+
+// Get Firestore instance
+const db = getFirestore();
+
+const app = express();
+
+// Configure CORS to allow requests from your frontend
+const corsOptions = {
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:3001', 
+    'https://your-frontend-domain.com', // Replace with your actual frontend domain
+    /\.vercel\.app$/, // Allow Vercel preview deployments
+    /\.netlify\.app$/, // Allow Netlify deployments
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-company-id'],
+};
+
+// Apply CORS middleware
+app.use(cors(corsOptions));
+
+// Apply authentication middleware to all routes except public endpoints
+app.use((req, res, next) => {
+  // Skip authentication for public landing page endpoint
+  if (req.path.startsWith('/public/')) {
+    return next();
+  }
+  return authenticateUser(req, res, next);
+});
+
+/**
+ * Landing Page validation schemas
+ */
+const landingPageSchemas = {
+  createLandingPage: Joi.object({
+    title: Joi.string().required().min(1).max(200),
+    description: Joi.string().optional().allow("").max(1000),
+    eventId: Joi.string().optional().allow(""),
+    guestCategoryId: Joi.string().optional().allow(""),
+    showTickets: Joi.boolean().default(false),
+    enableGuestRegistration: Joi.boolean().default(false),
+    isPasswordProtected: Joi.boolean().default(false),
+    password: Joi.string().optional().allow("").when("isPasswordProtected", {
+      is: true,
+      then: Joi.string().required().min(1),
+      otherwise: Joi.string().optional().allow("")
+    }),
+    backgroundImageUrl: Joi.string().optional().allow("").uri(),
+    customStyles: Joi.object({
+      primaryColor: Joi.string().optional().default("#3b82f6"),
+      textColor: Joi.string().optional().default("#ffffff"),
+      backgroundColor: Joi.string().optional().default("#111827")
+    }).optional()
+  })
+};
+
+/**
+ * Create a new landing page
+ */
+app.post("/", validateRequest(landingPageSchemas.createLandingPage), async (req, res) => {
+  try {
+    const userId = req.user?.uid;
+    const companyId = req.headers["x-company-id"] as string;
+    
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        error: "Company ID is required"
+      });
+    }
+
+    const data = req.body;
+    
+    // Validate that event exists if eventId is provided
+    if (data.eventId) {
+      const eventRef = db.collection("companies")
+        .doc(companyId)
+        .collection("events")
+        .doc(data.eventId);
+      const eventDoc = await eventRef.get();
+      
+      if (!eventDoc.exists) {
+        return res.status(400).json({
+          success: false,
+          error: "Event not found"
+        });
+      }
+
+      // Event is already scoped to the company, so no additional check needed
+    }
+
+    // Validate that guest category exists if guestCategoryId is provided
+    if (data.guestCategoryId) {
+      const categoryRef = db.collection("companies")
+        .doc(companyId)
+        .collection("categories")
+        .doc(data.guestCategoryId);
+      const categoryDoc = await categoryRef.get();
+      
+      if (!categoryDoc.exists) {
+        return res.status(400).json({
+          success: false,
+          error: "Guest category not found"
+        });
+      }
+    }
+
+    // Get company data to access the company slug
+    const companyRef = db.collection("companies").doc(companyId);
+    const companyDoc = await companyRef.get();
+    
+    if (!companyDoc.exists) {
+      return res.status(400).json({
+        success: false,
+        error: "Company not found"
+      });
+    }
+    
+    const companyData = companyDoc.data();
+    const companySlug = companyData?.slug;
+    
+    if (!companySlug) {
+      return res.status(400).json({
+        success: false,
+        error: "Company slug not found"
+      });
+    }
+
+    // Generate a unique slug for the landing page using company slug + title
+    const generateSlug = (title: string): string => {
+      return title
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-');
+    };
+
+    const titleSlug = generateSlug(data.title);
+    let slug = `${companySlug}/${titleSlug}`;
+    let counter = 1;
+    
+    // Ensure slug is unique globally (across all companies)
+    while (true) {
+      // Check if this slug exists in any company's landing pages
+      const companiesSnapshot = await db.collection("companies").get();
+      let slugExists = false;
+      
+      for (const companyDocCheck of companiesSnapshot.docs) {
+        const existingPage = await db.collection("companies")
+          .doc(companyDocCheck.id)
+          .collection("landingPages")
+          .where("slug", "==", slug)
+          .get();
+        
+        if (!existingPage.empty) {
+          slugExists = true;
+          break;
+        }
+      }
+      
+      if (!slugExists) {
+        break;
+      }
+      
+      slug = `${companySlug}/${titleSlug}-${counter}`;
+      counter++;
+    }
+
+    // Create the landing page
+    const newLandingPage = {
+      title: data.title,
+      description: data.description || "",
+      slug,
+      eventId: data.eventId || null,
+      guestCategoryId: data.guestCategoryId || null,
+      showTickets: data.showTickets || false,
+      enableGuestRegistration: data.enableGuestRegistration || false,
+      isPasswordProtected: data.isPasswordProtected || false,
+      password: data.isPasswordProtected ? data.password : null,
+      backgroundImageUrl: data.backgroundImageUrl || null,
+      customStyles: {
+        primaryColor: data.customStyles?.primaryColor || "#3b82f6",
+        textColor: data.customStyles?.textColor || "#ffffff",
+        backgroundColor: data.customStyles?.backgroundColor || "#111827"
+      },
+      createdBy: userId,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      isActive: true,
+      views: 0,
+      conversions: 0
+    };
+    
+    const docRef = await db.collection("companies")
+      .doc(companyId)
+      .collection("landingPages")
+      .add(newLandingPage);
+    
+    // Get the created document with its ID
+    const createdDoc = await docRef.get();
+    const createdData = createdDoc.data();
+    
+    return res.status(201).json({
+      success: true,
+      data: {
+        id: docRef.id,
+        ...createdData,
+        url: `${req.get('origin') || 'https://your-domain.com'}/landing/${slug}` // Generate the public URL
+      },
+      message: "Landing page created successfully"
+    });
+  } catch (error) {
+    console.error("Error creating landing page:", error);
+    handleApiError(res, error);
+    return;
+  }
+});
+
+/**
+ * Get all landing pages for a company
+ */
+app.get("/", async (req, res) => {
+  try {
+    const companyId = req.headers["x-company-id"] as string;
+    
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        error: "Company ID is required"
+      });
+    }
+
+    const {status} = req.query;
+    
+    let query = db.collection("companies")
+      .doc(companyId)
+      .collection("landingPages")
+      .orderBy("createdAt", "desc");
+    
+    // Apply status filter if provided
+    if (status === "active") {
+      query = query.where("isActive", "==", true);
+    } else if (status === "inactive") {
+      query = query.where("isActive", "==", false);
+    }
+    
+    const snapshot = await query.get();
+    const landingPages = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        ...data,
+        url: `${req.get('origin') || 'https://your-domain.com'}/landing/${data.slug}`
+      };
+    });
+    
+    return res.status(200).json({
+      success: true,
+      data: landingPages
+    });
+  } catch (error) {
+    console.error("Error fetching landing pages:", error);
+    handleApiError(res, error);
+    return;
+  }
+});
+
+/**
+ * Get a specific landing page by ID
+ */
+app.get("/:id", async (req, res) => {
+  try {
+    const {id} = req.params;
+    const companyId = req.headers["x-company-id"] as string;
+    
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        error: "Company ID is required"
+      });
+    }
+    
+    const docRef = db.collection("companies")
+      .doc(companyId)
+      .collection("landingPages")
+      .doc(id);
+    const doc = await docRef.get();
+    
+    if (!doc.exists) {
+      return res.status(404).json({
+        success: false,
+        error: "Landing page not found"
+      });
+    }
+    
+    const data = doc.data();
+    
+    return res.status(200).json({
+      success: true,
+      data: {
+        id: doc.id,
+        ...data,
+        url: `${req.get('origin') || 'https://your-domain.com'}/landing/${data?.slug}`
+      }
+    });
+  } catch (error) {
+    console.error("Error fetching landing page:", error);
+    handleApiError(res, error);
+    return;
+  }
+});
+
+/**
+ * Get landing page by slug (public endpoint for actual landing page display)
+ */
+app.get("/public/:slug", async (req, res) => {
+  try {
+    const {slug} = req.params;
+    
+    // We need to search across all companies for the slug
+    // First, get all companies
+    const companiesSnapshot = await db.collection("companies").get();
+    
+    let foundLandingPage = null;
+    let foundCompanyId = null;
+    let foundDocRef = null;
+    
+    // Search through each company's landing pages
+    for (const companyDoc of companiesSnapshot.docs) {
+      const companyId = companyDoc.id;
+      const landingPagesQuery = db.collection("companies")
+        .doc(companyId)
+        .collection("landingPages")
+        .where("slug", "==", slug)
+        .where("isActive", "==", true)
+        .limit(1);
+      
+      const landingPagesSnapshot = await landingPagesQuery.get();
+      
+      if (!landingPagesSnapshot.empty) {
+        const doc = landingPagesSnapshot.docs[0];
+        foundLandingPage = doc.data();
+        foundCompanyId = companyId;
+        foundDocRef = doc.ref;
+        break;
+      }
+    }
+    
+    if (!foundLandingPage || !foundDocRef || !foundCompanyId) {
+      return res.status(404).json({
+        success: false,
+        error: "Landing page not found"
+      });
+    }
+    
+    // Increment view count
+    await foundDocRef.update({
+      views: (foundLandingPage.views || 0) + 1
+    });
+    
+    // Don't return sensitive data like password in public endpoint
+    const publicData = {
+      id: foundDocRef.id,
+      title: foundLandingPage.title,
+      description: foundLandingPage.description,
+      slug: foundLandingPage.slug,
+      eventId: foundLandingPage.eventId,
+      showTickets: foundLandingPage.showTickets,
+      enableGuestRegistration: foundLandingPage.enableGuestRegistration,
+      isPasswordProtected: foundLandingPage.isPasswordProtected,
+      backgroundImageUrl: foundLandingPage.backgroundImageUrl,
+      customStyles: foundLandingPage.customStyles,
+      companyId: foundCompanyId,
+      views: (foundLandingPage.views || 0) + 1
+    };
+    
+    return res.status(200).json({
+      success: true,
+      data: publicData
+    });
+  } catch (error) {
+    console.error("Error fetching public landing page:", error);
+    handleApiError(res, error);
+    return;
+  }
+});
+
+// Export the Express app as a Firebase Function
+export const landingPages = onRequest(app);
