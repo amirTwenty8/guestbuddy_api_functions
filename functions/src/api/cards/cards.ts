@@ -683,8 +683,11 @@ export const deleteClubCard = onCall({
 
     const cardData = cardDoc.data();
     const cardTitle = cardData?.title || 'Unknown Card';
+<<<<<<< Updated upstream
     const items = cardData?.items || [];
     const itemsCount = items.length;
+=======
+>>>>>>> Stashed changes
 
     // Check if the card is being used in any events
     const eventsQuery = await db.collection('companies')
@@ -706,6 +709,7 @@ export const deleteClubCard = onCall({
       };
     }
 
+<<<<<<< Updated upstream
     // Clean up QR code images from Firebase Storage
     console.log(`Cleaning up ${itemsCount} QR code images from Firebase Storage...`);
     let deletedFilesCount = 0;
@@ -756,6 +760,8 @@ export const deleteClubCard = onCall({
       // Continue with deletion even if storage cleanup fails
     }
 
+=======
+>>>>>>> Stashed changes
     // Delete the card document
     await cardRef.delete();
     console.log(`Deleted club card ${data.cardId} for company ${data.companyId}`);
@@ -781,8 +787,11 @@ export const deleteClubCard = onCall({
         cardTitle: cardTitle,
         deletedBy: userName,
         deletedAt: new Date().toISOString(),
+<<<<<<< Updated upstream
         itemsDeleted: itemsCount,
         qrCodeFilesDeleted: deletedFilesCount,
+=======
+>>>>>>> Stashed changes
       }
     };
 
