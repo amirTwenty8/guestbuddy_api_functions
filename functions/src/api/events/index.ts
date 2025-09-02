@@ -971,6 +971,8 @@ const createEventTicketSchema = Joi.object({
     saleEndDate: Joi.string().isoDate().optional(),
     freeTicket: Joi.boolean().default(false),
     buyerPaysAdminFee: Joi.boolean().default(true),
+    ticketCategory: Joi.string().optional(),
+    maxTicketsPerUser: Joi.number().integer().min(1).optional(),
   }).required(),
 });
 
@@ -988,6 +990,8 @@ interface CreateEventTicketData {
     saleEndDate?: string;
     freeTicket?: boolean;
     buyerPaysAdminFee?: boolean;
+    ticketCategory?: string;
+    maxTicketsPerUser?: number;
   };
 }
 
@@ -1127,6 +1131,8 @@ export const createEventTicket = onCall({
       tickets: [], // Initialize empty tickets array
       freeTicket: data.ticketData.freeTicket !== undefined ? data.ticketData.freeTicket : false,
       buyerPaysAdminFee: data.ticketData.buyerPaysAdminFee !== undefined ? data.ticketData.buyerPaysAdminFee : true,
+      ticketCategory: data.ticketData.ticketCategory || null,
+      maxTicketsPerUser: data.ticketData.maxTicketsPerUser || null,
     };
 
     // Convert date objects to Firestore timestamps if provided
@@ -1168,6 +1174,8 @@ export const createEventTicket = onCall({
         ticketPrice: data.ticketData.ticketPrice,
         freeTicket: ticketData.freeTicket,
         buyerPaysAdminFee: ticketData.buyerPaysAdminFee,
+        ticketCategory: ticketData.ticketCategory,
+        maxTicketsPerUser: ticketData.maxTicketsPerUser,
         createdBy: userName,
         createdAt: new Date().toISOString(),
       }
@@ -1198,6 +1206,8 @@ const updateEventTicketSchema = Joi.object({
     saleEndDate: Joi.string().isoDate().optional(),
     freeTicket: Joi.boolean().optional(),
     buyerPaysAdminFee: Joi.boolean().optional(),
+    ticketCategory: Joi.string().optional(),
+    maxTicketsPerUser: Joi.number().integer().min(1).optional(),
   }).required(),
 });
 
@@ -1216,6 +1226,8 @@ interface UpdateEventTicketData {
     saleEndDate?: string;
     freeTicket?: boolean;
     buyerPaysAdminFee?: boolean;
+    ticketCategory?: string;
+    maxTicketsPerUser?: number;
   };
 }
 
