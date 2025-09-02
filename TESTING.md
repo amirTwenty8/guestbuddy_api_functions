@@ -26,6 +26,9 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 20. **editUserInCompany** - Edit user information and change their role within a company
 21. **removeUserFromCompany** - Remove users from a company and manage their business mode
 22. **createEventTicket** - Create tickets for an event with auto-generated UUID and ticket summary management
+23. **createClubCard** - Create club cards with auto-generated QR codes and Firebase Storage uploads
+24. **updateClubCard** - Update club card details and generate additional QR codes when needed
+25. **deleteClubCard** - Delete club cards with validation that they're not in use
 
 ## Prerequisites
 
@@ -2457,3 +2460,340 @@ const ticketData = {
 ✅ **Revenue Tracking** - Initializes tracking fields for future sales  
 ✅ **Activity Logging** - Comprehensive audit trail  
 ✅ **Validation** - Ensures data integrity and proper formats
+
+## Testing the createClubCard Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/createClubCard`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "title": "VIP GB",
+    "description": "Unlock exclusive access to all events with your VIP card! Skip the regular lines and enjoy VIP entry with free entry.",
+    "imageUrl": "https://firebasestorage.googleapis.com/v0/b/your-project.appspot.com/o/cards%2Fvip-card.png?alt=media&token=abc123",
+    "validFrom": "2025-07-18T00:00:00Z",
+    "validTo": "2026-07-18T00:00:00Z",
+    "freeEntry": {
+      "hours": 2,
+      "minutes": 30
+    },
+    "events": ["event-id-1", "event-id-2"],
+    "numberOfCards": 5
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `title` are required
+- `title` must be 1-100 characters
+- `description` must be max 1000 characters (optional)
+- `imageUrl` is optional (any string format)
+- `validFrom` and `validTo` must be valid ISO dates (optional)
+- `freeEntry.hours` must be 0-23 (optional)
+- `freeEntry.minutes` must be 0-59 (optional)
+- `events` is optional array of event IDs
+- `numberOfCards` must be 1-1000 (defaults to 1)
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Club card created successfully",
+    "data": {
+      "cardId": "1092ecce-5c4a-4d96-87e2-8c0adaad74e6",
+      "title": "VIP GB",
+      "numberOfCards": 5,
+      "itemsGenerated": 5,
+      "createdBy": "Amir Company Ehsani",
+      "createdAt": "2025-07-18T14:39:26.000Z"
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **Validation**: Checks if company exists
+2. **UUID Generation**: Creates unique card ID (format: `1092ecce-5c4a-4d96-87e2-8c0adaad74e6`)
+3. **QR Code Generation**: For each card item:
+   - Generates unique UUID
+   - Creates QR code image
+   - Uploads to Firebase Storage
+   - Makes file publicly accessible
+4. **Database Creation**: Saves card with items array containing all generated cards
+5. **Activity Logging**: Creates log entry with creation details
+
+### Database Structure
+
+**Club Card Document:**
+```json
+{
+  "title": "VIP GB",
+  "description": "Unlock exclusive access to all events with your VIP card!",
+  "imageUrl": "https://firebasestorage.googleapis.com/v0/b/your-project.appspot.com/o/cards%2Fvip-card.png?alt=media&token=abc123",
+  "validFrom": "2025-07-18T00:00:00Z",
+  "validTo": "2026-07-18T00:00:00Z",
+  "freeEntry": {
+    "hours": 2,
+    "minutes": 30
+  },
+  "events": ["event-id-1", "event-id-2"],
+  "items": [
+    {
+      "active": false,
+      "guest": "",
+      "nrUsed": 0,
+      "qrCode": "https://storage.googleapis.com/your-bucket/companies/companyId/cards/cardId/qrcodes/uniqueId.png",
+      "status": "unused",
+      "uniqueId": "1604ec22-df04-49ac-951e-fe84d550f0a8"
+    }
+  ],
+  "createdAt": "2025-07-18T14:39:26.000Z",
+  "createdBy": "user-id"
+}
+```
+
+### Key Features
+
+✅ **Auto-Generated UUIDs** - Both card ID and individual card unique IDs  
+✅ **Server-Side QR Generation** - Creates PNG QR codes automatically  
+✅ **Firebase Storage Integration** - Uploads and makes QR codes public  
+✅ **Flexible Card Count** - Generate 1-1000 cards per request  
+✅ **Immediate Availability** - QR codes ready to scan right away  
+
+## Testing the updateClubCard Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/updateClubCard`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body (Update Basic Info)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "cardId": "1092ecce-5c4a-4d96-87e2-8c0adaad74e6",
+    "title": "Updated VIP GB",
+    "description": "Updated description for VIP card"
+  }
+}
+```
+
+### Request Body (Generate More Cards)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "cardId": "1092ecce-5c4a-4d96-87e2-8c0adaad74e6",
+    "generateCards": 10
+  }
+}
+```
+
+### Request Body (Update Multiple Fields)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "cardId": "1092ecce-5c4a-4d96-87e2-8c0adaad74e6",
+    "title": "Premium VIP GB",
+    "description": "Premium VIP experience with exclusive benefits",
+    "validFrom": "2025-08-01T00:00:00Z",
+    "validTo": "2026-08-01T00:00:00Z",
+    "freeEntry": {
+      "hours": 3,
+      "minutes": 0
+    },
+    "events": ["event-id-3", "event-id-4"],
+    "generateCards": 15
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `cardId` are required
+- All other fields are optional - only send what you want to update
+- `generateCards` is request-only (not stored in database)
+- Date fields must be valid ISO format if provided
+
+### Expected Response (Basic Update)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Club card updated successfully",
+    "data": {
+      "cardId": "1092ecce-5c4a-4d96-87e2-8c0adaad74e6",
+      "changes": {
+        "title": "Updated VIP GB",
+        "description": "Updated description for VIP card"
+      },
+      "updatedBy": "Amir Company Ehsani",
+      "updatedAt": "2025-07-18T15:30:00.000Z"
+    }
+  }
+}
+```
+
+### Expected Response (With Card Generation)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Club card updated successfully",
+    "data": {
+      "cardId": "1092ecce-5c4a-4d96-87e2-8c0adaad74e6",
+      "changes": {
+        "title": "Premium VIP GB",
+        "generateCards": 15
+      },
+      "cardsGenerated": 10,
+      "totalCards": 15,
+      "updatedBy": "Amir Company Ehsani",
+      "updatedAt": "2025-07-18T15:30:00.000Z"
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **Change Detection**: Compares new values with existing values
+2. **Field Updates**: Updates only provided fields
+3. **Card Generation**: If `generateCards` specified and greater than current count:
+   - Generates additional QR codes
+   - Uploads to Firebase Storage
+   - Adds to existing items array
+4. **Logging**: Creates detailed audit trail of all changes
+5. **Database Update**: Saves changes with timestamp
+
+### Key Features
+
+✅ **Partial Updates** - Only update fields you specify  
+✅ **Automatic Card Scaling** - Generate more cards when needed  
+✅ **QR Code Generation** - Creates additional codes seamlessly  
+✅ **Change Tracking** - Detailed audit trail of all modifications  
+✅ **Smart Detection** - Knows exactly how many new cards needed  
+
+## Testing the deleteClubCard Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/deleteClubCard`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "cardId": "1092ecce-5c4a-4d96-87e2-8c0adaad74e6"
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `cardId` are required
+- Card must exist in the specified company
+- Card cannot be deleted if currently used in any events
+
+### Expected Response (Success)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Club card deleted successfully",
+    "data": {
+      "cardId": "1092ecce-5c4a-4d96-87e2-8c0adaad74e6",
+      "title": "VIP GB",
+      "deletedBy": "Amir Company Ehsani",
+      "deletedAt": "2025-07-18T16:00:00.000Z",
+      "itemsDeleted": 5
+    }
+  }
+}
+```
+
+### Error Response (Card in Use)
+
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Cannot delete club card. It is currently used in 2 events."
+  }
+}
+```
+
+### What the Function Does
+
+1. **Validation**: Checks if card exists and company is valid
+2. **Usage Check**: Verifies card is not used in any events
+3. **Deletion**: Removes card document and all associated data
+4. **Storage Cleanup**: Removes QR code images from Firebase Storage
+5. **Logging**: Creates deletion audit trail
+
+### Key Features
+
+✅ **Safety Validation** - Prevents deletion of cards in use  
+✅ **Complete Cleanup** - Removes all associated data and files  
+✅ **Storage Management** - Cleans up Firebase Storage files  
+✅ **Audit Trail** - Logs all deletion actions  
+✅ **Event Protection** - Safeguards against data loss  
+
+## Club Card Workflow Examples
+
+### Scenario 1: Create and Scale Up
+
+1. **Create initial card** with 5 cards
+2. **Update card** with `generateCards: 20` to add 15 more
+3. **Final result**: 20 total cards with unique QR codes
+
+### Scenario 2: Update Card Details
+
+1. **Update title** and description
+2. **Change validity dates**
+3. **Modify free entry times**
+4. **Add/remove events**
+
+### Scenario 3: Delete Unused Card
+
+1. **Check if card is used** in any events
+2. **Delete card** if safe to remove
+3. **Clean up** all associated data and files
+
+### Best Practices
+
+✅ **Start Small** - Create with fewer cards, scale up as needed  
+✅ **Regular Updates** - Keep card information current  
+✅ **Monitor Usage** - Track which cards are active  
+✅ **Safe Deletion** - Always verify cards aren't in use  
+✅ **Backup Strategy** - Consider archiving before deletion

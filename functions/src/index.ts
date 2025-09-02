@@ -18,6 +18,7 @@ import * as guestsApi from "./api/guests";
 import * as tablesApi from "./api/tables";
 import * as notificationsApi from "./api/notifications";
 import * as landingPagesApi from "./api/landing-pages";
+import * as cardsApi from "./api/cards";
 
 // Export all functions
 export const users = usersApi.users;
@@ -46,6 +47,11 @@ export const deleteEvent = eventsApi.deleteEvent;
 export const createEventTicket = eventsApi.createEventTicket;
 export const updateEventTicket = eventsApi.updateEventTicket;
 export const removeEventTicket = eventsApi.removeEventTicket;
+
+// Cards API
+export const createClubCard = cardsApi.createClubCard;
+export const updateClubCard = cardsApi.updateClubCard;
+export const deleteClubCard = cardsApi.deleteClubCard;
 
 // Guests API
 export const addGuest = guestsApi.addGuest;

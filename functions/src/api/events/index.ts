@@ -1579,6 +1579,22 @@ export const removeEventTicket = onCall({
     const ticketsSold = totalTickets - (ticketData?.ticketsLeft || 0);
     const ticketsLeft = ticketData?.ticketsLeft || 0;
 
+    // Check if tickets have been sold - prevent removal if so
+    if (ticketsSold > 0) {
+      return {
+        success: false,
+        error: `Cannot remove ticket "${ticketName}" because ${ticketsSold} tickets have been sold. Please handle sold tickets before removal.`,
+        data: {
+          ticketId: data.ticketId,
+          ticketName: ticketName,
+          totalTickets: totalTickets,
+          ticketsSold: ticketsSold,
+          ticketsLeft: ticketsLeft,
+          ticketPrice: ticketData?.ticketPrice || 0,
+        }
+      };
+    }
+
     // Delete the ticket document
     await ticketRef.delete();
     console.log(`Deleted ticket ${data.ticketId} for event ${data.eventId}`);
