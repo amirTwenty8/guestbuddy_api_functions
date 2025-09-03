@@ -2461,6 +2461,211 @@ const ticketData = {
 ✅ **Activity Logging** - Comprehensive audit trail  
 ✅ **Validation** - Ensures data integrity and proper formats
 
+## Testing the updateEventTicket Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/updateEventTicket`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body (Partial Update)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "eventId": "your-event-id",
+    "ticketId": "97500513-26fc-4981-9a1d-587f2a30c021",
+    "ticketData": {
+      "ticketName": "Updated VIP Ticket",
+      "ticketPrice": 200.00,
+      "ticketDescription": "Updated premium VIP experience",
+      "totalTickets": 150
+    }
+  }
+}
+```
+
+### Request Body (Full Update)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "eventId": "your-event-id",
+    "ticketId": "97500513-26fc-4981-9a1d-587f2a30c021",
+    "ticketData": {
+      "ticketName": "Premium VIP Ticket",
+      "ticketPrice": 250.00,
+      "ticketDescription": "Ultimate VIP experience with exclusive benefits",
+      "ticketImage": "https://firebasestorage.googleapis.com/v0/b/your-project.appspot.com/o/tickets%2Fpremium-vip.jpg?alt=media&token=xyz789",
+      "totalTickets": 200,
+      "saleStartDate": "2025-09-01T00:00:00Z",
+      "saleEndDate": "2025-09-30T23:59:59Z",
+      "freeTicket": false,
+      "buyerPaysAdminFee": true
+    }
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `eventId`, `ticketId` are required
+- `ticketData` is required and must contain at least one field to update
+- `totalTickets` must be a positive integer (if provided)
+- `ticketPrice` must be non-negative (if provided)
+- `saleStartDate` and `saleEndDate` must be valid ISO dates (if provided)
+- `freeTicket` and `buyerPaysAdminFee` must be boolean (if provided)
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Event ticket updated successfully",
+    "data": {
+      "ticketId": "97500513-26fc-4981-9a1d-587f2a30c021",
+      "eventId": "your-event-id",
+      "companyId": "your-company-id",
+      "changes": {
+        "ticketName": "Premium VIP Ticket",
+        "ticketPrice": 250.00,
+        "totalTickets": 200
+      },
+      "summaryUpdated": true,
+      "updatedBy": "Amir Company Ehsani",
+      "updatedAt": "2025-08-27T15:30:00.000Z"
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **Validation**: Checks if company, event, and ticket exist
+2. **Change Detection**: Compares new values with existing values
+3. **Partial Updates**: Updates only the provided fields
+4. **Summary Management**: Automatically adjusts `ticketSummary` if `totalTickets` changes
+5. **Date Conversion**: Converts ISO date strings to Firestore timestamps
+6. **Activity Logging**: Creates detailed audit trail of all changes
+
+### Key Features
+
+✅ **Partial Updates** - Only update fields you specify  
+✅ **Smart Summary Management** - Automatically adjusts ticket summary  
+✅ **Date Handling** - Converts strings to proper Firestore timestamps  
+✅ **Change Tracking** - Detailed audit trail of all modifications  
+✅ **Validation** - Ensures data integrity and proper formats  
+
+## Testing the removeEventTicket Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/removeEventTicket`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "eventId": "your-event-id",
+    "ticketId": "97500513-26fc-4981-9a1d-587f2a30c021"
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `eventId`, `ticketId` are required
+- Ticket must exist in the specified event
+- **Cannot delete if tickets have been sold** (`ticketsLeft < totalTickets`)
+
+### Expected Response (Success)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Event ticket removed successfully",
+    "data": {
+      "ticketId": "97500513-26fc-4981-9a1d-587f2a30c021",
+      "ticketName": "VIP Ticket",
+      "eventId": "your-event-id",
+      "companyId": "your-company-id",
+      "removedBy": "Amir Company Ehsani",
+      "removedAt": "2025-08-27T16:00:00.000Z",
+      "summaryUpdated": true
+    }
+  }
+}
+```
+
+### Error Response (Tickets Sold)
+
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Cannot remove ticket. 25 tickets have been sold. Only unsold tickets can be removed."
+  }
+}
+```
+
+### What the Function Does
+
+1. **Validation**: Checks if company, event, and ticket exist
+2. **Safety Check**: Verifies no tickets have been sold
+3. **Deletion**: Removes ticket document from Firestore
+4. **Summary Update**: Adjusts `ticketSummary` to reflect removal
+5. **Activity Logging**: Creates deletion audit trail
+
+### Key Features
+
+✅ **Safety Validation** - Prevents deletion of tickets with sales  
+✅ **Summary Management** - Automatically updates ticket summary  
+✅ **Complete Removal** - Deletes ticket and adjusts totals  
+✅ **Audit Trail** - Logs all deletion actions  
+✅ **Data Protection** - Safeguards against accidental data loss  
+
+## Event Ticket Workflow Examples
+
+### Scenario 1: Create and Update
+
+1. **Create ticket** with `createEventTicket`
+2. **Update details** with `updateEventTicket`
+3. **Modify pricing** or description as needed
+4. **Adjust ticket count** if demand changes
+
+### Scenario 2: Scale Down Safely
+
+1. **Check current sales** before reducing `totalTickets`
+2. **Update ticket count** only if safe
+3. **Monitor summary** for accurate totals
+
+### Scenario 3: Remove Unused Ticket
+
+1. **Verify no sales** have occurred
+2. **Remove ticket** safely with `removeEventTicket`
+3. **Summary updated** automatically
+
+### Best Practices
+
+✅ **Start Conservative** - Begin with fewer tickets, scale up as needed  
+✅ **Monitor Sales** - Check ticket status before major changes  
+✅ **Regular Updates** - Keep ticket information current  
+✅ **Safe Removal** - Always verify tickets can be safely deleted  
+✅ **Summary Tracking** - Use ticket summary for accurate counts
+
 ## Testing the createClubCard Function
 
 ### Request Details
