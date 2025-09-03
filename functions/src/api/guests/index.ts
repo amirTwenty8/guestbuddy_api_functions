@@ -31,6 +31,7 @@ interface Guest {
 const addGuestSchema = Joi.object({
   eventId: Joi.string().required(),
   companyId: Joi.string().required(),
+  guestListId: Joi.string().optional().default('main'), // Guest list document ID, defaults to 'main'
   guestName: Joi.string().required().min(1).max(100),
   normalGuests: Joi.number().integer().min(0).default(0),
   freeGuests: Joi.number().integer().min(0).default(0),
@@ -43,6 +44,7 @@ const addGuestSchema = Joi.object({
 const addMultipleGuestsSchema = Joi.object({
   eventId: Joi.string().required(),
   companyId: Joi.string().required(),
+  guestListId: Joi.string().optional().default('main'), // Guest list document ID, defaults to 'main'
   guestsText: Joi.string().required().min(1),
 });
 
@@ -56,6 +58,7 @@ const draftSchema = Joi.object({
 const updateGuestSchema = Joi.object({
   eventId: Joi.string().required(),
   companyId: Joi.string().required(),
+  guestListId: Joi.string().optional().default('main'), // Guest list document ID, defaults to 'main'
   guestId: Joi.string().required(),
   guestName: Joi.string().optional(),
   normalGuests: Joi.number().min(0).optional(),
@@ -68,6 +71,7 @@ const updateGuestSchema = Joi.object({
 const checkInGuestSchema = Joi.object({
   eventId: Joi.string().required(),
   companyId: Joi.string().required(),
+  guestListId: Joi.string().optional().default('main'), // Guest list document ID, defaults to 'main'
   guestId: Joi.string().required(),
   normalIncrement: Joi.number().min(0).optional(),
   freeIncrement: Joi.number().min(0).optional(),
@@ -81,7 +85,7 @@ const checkInGuestSchema = Joi.object({
  * This function handles:
  * 1. Validating the guest data
  * 2. Generating a unique guest ID
- * 3. Adding the guest to the guest list
+ * 3. Adding the guest to the specified guest list (defaults to 'main')
  * 4. Updating guest list summary statistics
  * 5. Adding the guest to company guests (if user was selected)
  * 
@@ -123,6 +127,7 @@ export const addGuest = onCall({enforceAppCheck: false}, async (request) => {
     const {
       eventId,
       companyId,
+      guestListId,
       guestName,
       normalGuests,
       freeGuests,
@@ -201,19 +206,19 @@ export const addGuest = onCall({enforceAppCheck: false}, async (request) => {
     };
 
     // Get guest list references
-    const guestListMainRef = eventRef.collection('guest_lists').doc('main');
+    const guestListRef = eventRef.collection('guest_lists').doc(guestListId);
     const guestListSummaryRef = eventRef.collection('guest_lists').doc('guestListSummary');
     const guestListLogRef = eventRef.collection('guest_lists').doc('guestlistLog');
 
     // Get current data before transaction (all reads first)
-    const [guestListMainDoc, guestListLogDoc] = await Promise.all([
-      guestListMainRef.get(),
+    const [guestListDoc, guestListLogDoc] = await Promise.all([
+      guestListRef.get(),
       guestListLogRef.get(),
     ]);
 
     let currentGuestList: Guest[] = [];
-    if (guestListMainDoc.exists) {
-      const data = guestListMainDoc.data();
+    if (guestListDoc.exists) {
+      const data = guestListDoc.data();
       currentGuestList = data?.guestList || [];
     }
 
@@ -238,9 +243,8 @@ export const addGuest = onCall({enforceAppCheck: false}, async (request) => {
 
     // Run all operations in a transaction (only writes)
     await db.runTransaction(async (transaction) => {
-      // 1. Update guest list main document
-      transaction.set(guestListMainRef, {
-        eventId,
+      // 1. Update guest list document - only update the array and timestamp, preserve other fields
+      transaction.update(guestListRef, {
         guestList: currentGuestList,
         lastUpdated: FieldValue.serverTimestamp(),
       });
@@ -286,6 +290,7 @@ export const addGuest = onCall({enforceAppCheck: false}, async (request) => {
         addedAt: new Date().toISOString(),
         userIdForCompanyGuests: selectedUserId || guestId,
         userType: selectedUserId ? 'existing' : 'new',
+        guestListId: guestListId,
       },
     };
   } catch (error) {
@@ -302,11 +307,12 @@ export const addGuest = onCall({enforceAppCheck: false}, async (request) => {
  * This function handles:
  * 1. Parsing text input in format: "FirstName LastName +free +paid"
  * 2. Creating multiple guest objects
- * 3. Adding all guests to the guest list
+ * 3. Adding all guests to the specified guest list (defaults to 'main')
  * 4. Updating guest list summary statistics
  * 5. Creating log entries for each guest
  * 
  * Format: "John Doe +2 +3" (2 free guests, 3 paid guests)
+ * Format: "John Doe +0 +2" (0 free guests, 2 paid guests)
  */
 export const addMultipleGuests = onCall({enforceAppCheck: false}, async (request) => {
   try {
@@ -344,6 +350,7 @@ export const addMultipleGuests = onCall({enforceAppCheck: false}, async (request
     const {
       eventId,
       companyId,
+      guestListId,
       guestsText,
     } = request.data;
 
@@ -390,18 +397,44 @@ export const addMultipleGuests = onCall({enforceAppCheck: false}, async (request
       const parts = line.trim().split(' ');
       if (parts.length < 3) continue;
 
+      // Find where the guest counts start (first + sign)
       const nameEndIndex = parts.findIndex((part: string) => part.startsWith('+'));
       if (nameEndIndex === -1) continue;
 
-      const name = parts.slice(0, nameEndIndex).join(' ');
+      // Extract name (everything before the first + sign)
+      let name = parts.slice(0, nameEndIndex).join(' ');
+      
+      // Extract numbers (everything after + signs)
       const numbers = parts
         .slice(nameEndIndex)
         .filter((part: string) => part.startsWith('+'))
         .map((part: string) => parseInt(part.substring(1)) || 0);
 
-      const freeGuests = numbers.length > 0 ? numbers[0] : 0;
-      const paidGuests = numbers.length > 1 ? numbers[1] : 0;
+      // Parse guest counts based on the format
+      let freeGuests = 0;
+      let paidGuests = 0;
+      
+      // Check if there's a number before the + signs (like "Sam Salehi 0 +2")
+      if (nameEndIndex > 0) {
+        const lastPartBeforePlus = parts[nameEndIndex - 1];
+        if (!isNaN(parseInt(lastPartBeforePlus))) {
+          // Format: "Name 0 +2" -> free: 0, paid: 2
+          freeGuests = parseInt(lastPartBeforePlus);
+          paidGuests = numbers.length > 0 ? numbers[0] : 0;
+          // Remove the number from the name
+          name = parts.slice(0, nameEndIndex - 1).join(' ');
+        } else {
+          // Format: "Name +2 +3" -> free: 2, paid: 3
+          freeGuests = numbers.length > 0 ? numbers[0] : 0;
+          paidGuests = numbers.length > 1 ? numbers[1] : 0;
+        }
+      } else {
+        // Format: "Name +2 +3" -> free: 2, paid: 3
+        freeGuests = numbers.length > 0 ? numbers[0] : 0;
+        paidGuests = numbers.length > 1 ? numbers[1] : 0;
+      }
 
+      // Create guest if there's a name and at least one guest count > 0
       if (name && (freeGuests > 0 || paidGuests > 0)) {
         const guestId = uuidv4();
         
@@ -444,19 +477,19 @@ export const addMultipleGuests = onCall({enforceAppCheck: false}, async (request
     }
 
     // Get guest list references
-    const guestListMainRef = eventRef.collection('guest_lists').doc('main');
+    const guestListRef = eventRef.collection('guest_lists').doc(guestListId);
     const guestListSummaryRef = eventRef.collection('guest_lists').doc('guestListSummary');
     const guestListLogRef = eventRef.collection('guest_lists').doc('guestlistLog');
 
     // Get current data before transaction (all reads first)
-    const [guestListMainDoc, guestListLogDoc] = await Promise.all([
-      guestListMainRef.get(),
+    const [guestListDoc, guestListLogDoc] = await Promise.all([
+      guestListRef.get(),
       guestListLogRef.get(),
     ]);
 
     let currentGuestList: Guest[] = [];
-    if (guestListMainDoc.exists) {
-      const data = guestListMainDoc.data();
+    if (guestListDoc.exists) {
+      const data = guestListDoc.data();
       currentGuestList = data?.guestList || [];
     }
 
@@ -481,9 +514,8 @@ export const addMultipleGuests = onCall({enforceAppCheck: false}, async (request
 
     // Run all operations in a transaction (only writes)
     await db.runTransaction(async (transaction) => {
-      // 1. Update guest list main document
-      transaction.set(guestListMainRef, {
-        eventId,
+      // 1. Update guest list document - only update the array and timestamp, preserve other fields
+      transaction.update(guestListRef, {
         guestList: currentGuestList,
         lastUpdated: FieldValue.serverTimestamp(),
       });
@@ -514,6 +546,7 @@ export const addMultipleGuests = onCall({enforceAppCheck: false}, async (request
         addedBy: userName,
         addedAt: new Date().toISOString(),
         guestNames: newGuests.map(g => g.guestName),
+        guestListId: guestListId,
       },
     };
   } catch (error) {
@@ -672,6 +705,7 @@ export const updateGuest = onCall({enforceAppCheck: false}, async (request) => {
     const {
       eventId,
       companyId,
+      guestListId,
       guestId,
       guestName,
       normalGuests,
@@ -712,24 +746,24 @@ export const updateGuest = onCall({enforceAppCheck: false}, async (request) => {
     }
 
     // Get guest list references
-    const guestListMainRef = eventRef.collection('guest_lists').doc('main');
+    const guestListRef = eventRef.collection('guest_lists').doc(guestListId);
     const guestListSummaryRef = eventRef.collection('guest_lists').doc('guestListSummary');
     const guestListLogRef = eventRef.collection('guest_lists').doc('guestlistLog');
 
     // Get current data before transaction (all reads first)
-    const [guestListMainDoc, guestListLogDoc] = await Promise.all([
-      guestListMainRef.get(),
+    const [guestListDoc, guestListLogDoc] = await Promise.all([
+      guestListRef.get(),
       guestListLogRef.get(),
     ]);
 
-    if (!guestListMainDoc.exists) {
+    if (!guestListDoc.exists) {
       return {
         success: false,
         error: "Guest list not found",
       };
     }
 
-    const data = guestListMainDoc.data();
+    const data = guestListDoc.data();
     const currentGuestList: Guest[] = data?.guestList || [];
     
     // Find the guest to update
@@ -821,9 +855,8 @@ export const updateGuest = onCall({enforceAppCheck: false}, async (request) => {
 
     // Run all operations in a transaction (only writes)
     await db.runTransaction(async (transaction) => {
-      // 1. Update guest list main document
-      transaction.set(guestListMainRef, {
-        eventId,
+      // 1. Update guest list document - only update the array and timestamp, preserve other fields
+      transaction.update(guestListRef, {
         guestList: currentGuestList,
         lastUpdated: FieldValue.serverTimestamp(),
       });
@@ -860,6 +893,7 @@ export const updateGuest = onCall({enforceAppCheck: false}, async (request) => {
         updatedAt: new Date().toISOString(),
         changes: changes,
         summaryUpdated: totalGuestsDiff !== 0,
+        guestListId: guestListId,
       },
     };
   } catch (error) {
@@ -916,6 +950,7 @@ export const checkInGuest = onCall({enforceAppCheck: false}, async (request) => 
     const {
       eventId,
       companyId,
+      guestListId,
       guestId,
       normalIncrement,
       freeIncrement,
@@ -956,7 +991,7 @@ export const checkInGuest = onCall({enforceAppCheck: false}, async (request) => 
     }
 
     // Get guest list references
-    const guestListMainRef = eventRef.collection('guest_lists').doc('main');
+    const guestListRef = eventRef.collection('guest_lists').doc(guestListId);
     const guestListSummaryRef = eventRef.collection('guest_lists').doc('guestListSummary');
     const guestListLogRef = eventRef.collection('guest_lists').doc('guestlistLog');
 
@@ -971,13 +1006,13 @@ export const checkInGuest = onCall({enforceAppCheck: false}, async (request) => 
     // Run all operations in a transaction (reads and writes)
     const result = await db.runTransaction(async (transaction) => {
       // 1. Read current guest list data inside transaction
-      const guestListMainDoc = await transaction.get(guestListMainRef);
+      const guestListDoc = await transaction.get(guestListRef);
       
-      if (!guestListMainDoc.exists) {
+      if (!guestListDoc.exists) {
         throw new Error("Guest list not found");
       }
 
-      const data = guestListMainDoc.data();
+      const data = guestListDoc.data();
       const currentGuestList: Guest[] = data?.guestList || [];
       
       // Find the guest to update
@@ -1088,9 +1123,8 @@ export const checkInGuest = onCall({enforceAppCheck: false}, async (request) => 
       };
       currentLogs.push(logEntry);
 
-      // 2. Update guest list main document
-      transaction.set(guestListMainRef, {
-        eventId,
+      // 2. Update guest list document - only update the array and timestamp, preserve other fields
+      transaction.update(guestListRef, {
         guestList: currentGuestList,
         lastUpdated: FieldValue.serverTimestamp(),
       });
@@ -1128,6 +1162,7 @@ export const checkInGuest = onCall({enforceAppCheck: false}, async (request) => 
           action: action,
           changes: changes,
           summaryUpdated: totalDiff !== 0,
+          guestListId: guestListId,
         },
       };
     });
@@ -1138,6 +1173,225 @@ export const checkInGuest = onCall({enforceAppCheck: false}, async (request) => 
     return {
       success: false,
       error: "Failed to check in guest",
+    };
+  }
+});
+
+// Validation schema for deleting guests
+const deleteGuestSchema = Joi.object({
+  eventId: Joi.string().required(),
+  companyId: Joi.string().required(),
+  guestListId: Joi.string().optional().default('main'), // Guest list document ID, defaults to 'main'
+  guestId: Joi.string().when('guestIds', {
+    is: Joi.exist(),
+    then: Joi.optional(),
+    otherwise: Joi.required()
+  }),
+  guestIds: Joi.array().items(Joi.string()).optional(), // Array of guest IDs for bulk deletion
+}).or('guestId', 'guestIds'); // Either guestId or guestIds must be provided
+
+/**
+ * Delete one or multiple guests from an event's guest list
+ * This function handles:
+ * 1. Validating the guest data
+ * 2. Finding and removing guests from the specified guest list
+ * 3. Updating guest list summary statistics
+ * 4. Creating log entries for deletions
+ * 5. Maintaining guest list integrity
+ * 
+ * All operations are performed in a single transaction for data consistency
+ */
+export const deleteGuest = onCall({enforceAppCheck: false}, async (request) => {
+  try {
+    // Ensure user is authenticated
+    if (!request.auth) {
+      throw new Error("Unauthorized");
+    }
+    
+    const userId = request.auth.uid;
+    const userData = request.auth.token;
+    
+    // Get user name from token or fetch from Firestore
+    let userName = userData.name || userData.displayName || userId;
+    
+    // If we only have the ID, try to get the user's name from Firestore
+    if (userName === userId) {
+      try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        if (userDoc.exists) {
+          const userDocData = userDoc.data();
+          const firstName = userDocData?.userFirstName || '';
+          const lastName = userDocData?.userLastName || '';
+          userName = `${firstName} ${lastName}`.trim();
+          if (userName === '') {
+            userName = userId; // Fallback to ID if no name found
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to fetch user name from Firestore:', error);
+        userName = userId; // Fallback to ID
+      }
+    }
+    
+    // Validate request data
+    const {
+      eventId,
+      companyId,
+      guestListId,
+      guestId,
+      guestIds,
+    } = request.data;
+
+    // Validate input data
+    const {error} = deleteGuestSchema.validate(request.data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Check if company exists
+    const companyRef = db.collection('companies').doc(companyId);
+    const companyDoc = await companyRef.get();
+    
+    if (!companyDoc.exists) {
+      return {
+        success: false,
+        error: "Company not found",
+      };
+    }
+
+    // Check if event exists
+    const eventRef = db.collection('companies').doc(companyId).collection('events').doc(eventId);
+    const eventDoc = await eventRef.get();
+    
+    if (!eventDoc.exists) {
+      return {
+        success: false,
+        error: "Event not found",
+      };
+    }
+
+    // Get guest list references
+    const guestListRef = eventRef.collection('guest_lists').doc(guestListId);
+    const guestListSummaryRef = eventRef.collection('guest_lists').doc('guestListSummary');
+    const guestListLogRef = eventRef.collection('guest_lists').doc('guestlistLog');
+
+    // Get current data before transaction (all reads first)
+    const [guestListDoc, guestListLogDoc] = await Promise.all([
+      guestListRef.get(),
+      guestListLogRef.get(),
+    ]);
+
+    if (!guestListDoc.exists) {
+      return {
+        success: false,
+        error: "Guest list not found",
+      };
+    }
+
+    const data = guestListDoc.data();
+    const currentGuestList: Guest[] = data?.guestList || [];
+    
+    // Determine which guest IDs to delete
+    const guestIdsToDelete = guestIds || [guestId];
+    
+    // Find guests to delete and calculate totals for summary update
+    const guestsToDelete: Guest[] = [];
+    let totalNormalGuestsToRemove = 0;
+    let totalFreeGuestsToRemove = 0;
+    let totalNormalCheckedInToRemove = 0;
+    let totalFreeCheckedInToRemove = 0;
+    
+    for (const idToDelete of guestIdsToDelete) {
+      const guestIndex = currentGuestList.findIndex(g => g.guestId === idToDelete);
+      if (guestIndex !== -1) {
+        const guest = currentGuestList[guestIndex];
+        guestsToDelete.push(guest);
+        totalNormalGuestsToRemove += guest.normalGuests;
+        totalFreeGuestsToRemove += guest.freeGuests;
+        totalNormalCheckedInToRemove += guest.normalCheckedIn;
+        totalFreeCheckedInToRemove += guest.freeCheckedIn;
+      }
+    }
+
+    if (guestsToDelete.length === 0) {
+      return {
+        success: false,
+        error: "No guests found to delete",
+      };
+    }
+
+    // Remove guests from the list
+    const updatedGuestList = currentGuestList.filter(g => !guestIdsToDelete.includes(g.guestId));
+
+    // Prepare log entries for deleted guests
+    const logEntries = guestsToDelete.map(guest => ({
+      addedAt: new Date().toISOString(),
+      addedBy: userName,
+      guestName: guest.guestName,
+      status: "deleted",
+      userId: userId,
+    }));
+
+    let currentLogs: any[] = [];
+    if (guestListLogDoc.exists) {
+      const logData = guestListLogDoc.data();
+      currentLogs = logData?.logs || [];
+    }
+    currentLogs.push(...logEntries);
+
+    // Run all operations in a transaction (only writes)
+    await db.runTransaction(async (transaction) => {
+      // 1. Update guest list document - only update the array and timestamp, preserve other fields
+      transaction.update(guestListRef, {
+        guestList: updatedGuestList,
+        lastUpdated: FieldValue.serverTimestamp(),
+      });
+
+      // 2. Update guest list summary
+      const totalGuestsToRemove = totalNormalGuestsToRemove + totalFreeGuestsToRemove;
+      const totalCheckedInToRemove = totalNormalCheckedInToRemove + totalFreeCheckedInToRemove;
+
+      transaction.update(guestListSummaryRef, {
+        totalGuests: FieldValue.increment(-totalGuestsToRemove),
+        totalNormalGuests: FieldValue.increment(-totalNormalGuestsToRemove),
+        totalFreeGuests: FieldValue.increment(-totalFreeGuestsToRemove),
+        totalCheckedIn: FieldValue.increment(-totalCheckedInToRemove),
+        normalGuestsCheckedIn: FieldValue.increment(-totalNormalCheckedInToRemove),
+        freeGuestsCheckedIn: FieldValue.increment(-totalFreeCheckedInToRemove),
+        lastUpdated: FieldValue.serverTimestamp(),
+      });
+
+      // 3. Update guest list log
+      transaction.set(guestListLogRef, {
+        logs: currentLogs,
+        lastUpdated: FieldValue.serverTimestamp(),
+      });
+    });
+
+    return {
+      success: true,
+      message: guestsToDelete.length === 1 ? "Guest deleted successfully" : "Guests deleted successfully",
+      data: {
+        guestsDeleted: guestsToDelete.length,
+        guestIds: guestIdsToDelete,
+        guestNames: guestsToDelete.map(g => g.guestName),
+        totalNormalGuestsRemoved: totalNormalGuestsToRemove,
+        totalFreeGuestsRemoved: totalFreeGuestsToRemove,
+        totalGuestsRemoved: totalNormalGuestsToRemove + totalFreeGuestsToRemove,
+        totalCheckedInRemoved: totalNormalCheckedInToRemove + totalFreeCheckedInToRemove,
+        deletedBy: userName,
+        deletedAt: new Date().toISOString(),
+        guestListId: guestListId,
+      },
+    };
+  } catch (error) {
+    console.error("Error deleting guest(s):", error);
+    return {
+      success: false,
+      error: "Failed to delete guest(s)",
     };
   }
 });

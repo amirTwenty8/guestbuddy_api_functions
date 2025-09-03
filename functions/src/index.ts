@@ -66,6 +66,7 @@ export const saveGuestDraft = guestsApi.saveGuestDraft;
 export const clearGuestDraft = guestsApi.clearGuestDraft;
 export const updateGuest = guestsApi.updateGuest;
 export const checkInGuest = guestsApi.checkInGuest;
+export const deleteGuest = guestsApi.deleteGuest;
 
 // Tables API
 export const bookTable = tablesApi.bookTable;

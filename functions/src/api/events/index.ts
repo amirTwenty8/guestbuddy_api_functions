@@ -17,6 +17,7 @@ const createEventSchema = Joi.object({
   categories: Joi.array().items(Joi.string()).optional().default([]), // Now expects category IDs
   clubCardIds: Joi.array().items(Joi.string()).optional().default([]), // Already expects IDs
   eventGenre: Joi.array().items(Joi.string()).optional().default([]), // Now expects genre IDs
+  additionalGuestLists: Joi.array().items(Joi.string().min(1).max(100)).optional().default([]), // Names for additional guest lists
 });
 
 // Type definitions
@@ -87,6 +88,7 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
       categories,
       clubCardIds,
       eventGenre,
+      additionalGuestLists,
     } = requestData;
 
     // Validate input data
@@ -379,7 +381,24 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
         lastUpdated: FieldValue.serverTimestamp(),
       });
       
-      // 6. Create guest list summary
+      // 6. Create additional guest lists if specified
+      if (additionalGuestLists && additionalGuestLists.length > 0) {
+        for (const guestListName of additionalGuestLists) {
+          const additionalGuestListId = uuidv4();
+          const additionalGuestListRef = eventRef
+            .collection('guest_lists')
+            .doc(additionalGuestListId);
+          
+          transaction.set(additionalGuestListRef, {
+            eventId,
+            guestList: [],
+            guestListName: guestListName, // Store the name in the document
+            lastUpdated: FieldValue.serverTimestamp(),
+          });
+        }
+      }
+      
+      // 7. Create guest list summary
       const guestListSummaryRef = eventRef
         .collection('guest_lists')
         .doc('guestListSummary');
@@ -394,7 +413,7 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
         lastUpdated: FieldValue.serverTimestamp(),
       });
       
-      // 7. Initialize guest list log
+      // 8. Initialize guest list log
       const guestListLogRef = eventRef
         .collection('guest_lists')
         .doc('guestlistLog');
@@ -414,6 +433,7 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
         categories: fetchedData.categories,
         clubCardIds: fetchedData.clubCardIds,
         eventGenre: fetchedData.eventGenre,
+        additionalGuestLists: additionalGuestLists || [],
       },
     };
   } catch (error) {
@@ -456,6 +476,7 @@ export const updateEvent = onCall({enforceAppCheck: false}, async (request) => {
       categories,
       clubCardIds,
       eventGenre,
+      additionalGuestLists,
     } = request.data;
 
     // Validation schema for event updates (all fields optional except eventId and companyId)
@@ -469,6 +490,7 @@ export const updateEvent = onCall({enforceAppCheck: false}, async (request) => {
       categories: Joi.array().items(Joi.string()).optional(),
       clubCardIds: Joi.array().items(Joi.string()).optional(),
       eventGenre: Joi.array().items(Joi.string()).optional(),
+      additionalGuestLists: Joi.array().items(Joi.string().min(1).max(100)).optional(), // Names for additional guest lists
     });
 
     // Validate input data
@@ -801,6 +823,45 @@ export const updateEvent = onCall({enforceAppCheck: false}, async (request) => {
           });
         }
       }
+      
+      // 4. Process additional guest lists (only if additionalGuestLists were provided)
+      if (additionalGuestLists !== undefined) {
+        // Get current guest lists to see what exists
+        const currentGuestListsRef = eventRef.collection('guest_lists');
+        const currentGuestListsSnapshot = await currentGuestListsRef.get();
+        
+        // Find existing additional guest lists (exclude 'main', 'guestListSummary', 'guestlistLog')
+        const existingAdditionalGuestLists = currentGuestListsSnapshot.docs
+          .filter(doc => !['main', 'guestListSummary', 'guestlistLog'].includes(doc.id))
+          .map(doc => ({ id: doc.id, name: doc.data()?.guestListName }));
+        
+        // Calculate which guest lists to add and remove
+        const newGuestListNames = new Set(additionalGuestLists);
+        const existingGuestListNames = new Set(existingAdditionalGuestLists.map(gl => gl.name));
+        
+        const guestListsToRemove = existingAdditionalGuestLists
+          .filter(gl => !newGuestListNames.has(gl.name))
+          .map(gl => gl.id);
+        
+        const guestListsToAdd = additionalGuestLists
+          .filter((name: string) => !existingGuestListNames.has(name));
+        
+        // Remove old additional guest lists
+        for (const guestListId of guestListsToRemove) {
+          transaction.delete(currentGuestListsRef.doc(guestListId));
+        }
+        
+        // Add new additional guest lists
+        for (const guestListName of guestListsToAdd) {
+          const additionalGuestListId = uuidv4();
+          transaction.set(currentGuestListsRef.doc(additionalGuestListId), {
+            eventId,
+            guestList: [],
+            guestListName: guestListName,
+            lastUpdated: FieldValue.serverTimestamp(),
+          });
+        }
+      }
     });
     
     // Prepare response data
@@ -816,6 +877,7 @@ export const updateEvent = onCall({enforceAppCheck: false}, async (request) => {
     if (categories !== undefined) responseData.categories = fetchedData.categories;
     if (clubCardIds !== undefined) responseData.clubCardIds = fetchedData.clubCardIds;
     if (eventGenre !== undefined) responseData.eventGenre = fetchedData.eventGenre;
+    if (additionalGuestLists !== undefined) responseData.additionalGuestLists = additionalGuestLists;
 
     // Only include changes if tableLayouts were provided
     if (tableLayouts !== undefined) {
