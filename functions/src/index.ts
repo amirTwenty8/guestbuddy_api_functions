@@ -19,6 +19,7 @@ import * as tablesApi from "./api/tables";
 import * as notificationsApi from "./api/notifications";
 import * as landingPagesApi from "./api/landing-pages";
 import * as cardsApi from "./api/cards";
+import * as layoutsApi from "./api/layouts";
 
 // Export all functions
 export const users = usersApi.users;
@@ -52,6 +53,11 @@ export const removeEventTicket = eventsApi.removeEventTicket;
 export const createClubCard = cardsApi.createClubCard;
 export const updateClubCard = cardsApi.updateClubCard;
 export const deleteClubCard = cardsApi.deleteClubCard;
+
+// Layouts API
+export const createTableLayout = layoutsApi.createTableLayout;
+export const updateTableLayout = layoutsApi.updateTableLayout;
+export const deleteTableLayout = layoutsApi.deleteTableLayout;
 
 // Guests API
 export const addGuest = guestsApi.addGuest;

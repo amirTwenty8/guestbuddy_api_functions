@@ -29,6 +29,8 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 23. **createClubCard** - Create club cards with auto-generated QR codes and Firebase Storage uploads
 24. **updateClubCard** - Update club card details and generate additional QR codes when needed
 25. **deleteClubCard** - Delete club cards with validation that they're not in use
+26. **createTableLayout** - Create table layouts from canvas objects with rotation support
+27. **updateTableLayout** - Update existing table layouts with partial field updates and rotation support
 
 ## Prerequisites
 
@@ -3002,3 +3004,565 @@ const ticketData = {
 ✅ **Monitor Usage** - Track which cards are active  
 ✅ **Safe Deletion** - Always verify cards aren't in use  
 ✅ **Backup Strategy** - Consider archiving before deletion
+
+## Testing the createTableLayout Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/createTableLayout`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body (Basic Layout)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "name": "Main Area",
+    "canvasHeight": 2000,
+    "canvasWidth": 2000,
+    "items": [
+      {
+        "tableName": "101",
+        "type": "ItemType.table",
+        "shape": "ItemShape.square",
+        "width": 403.33,
+        "height": 301.67,
+        "positionX": 0,
+        "positionY": 0
+      },
+      {
+        "tableName": "102",
+        "type": "ItemType.table",
+        "shape": "ItemShape.circle",
+        "width": 378.33,
+        "height": 378.33,
+        "positionX": 1621.67,
+        "positionY": 0
+      }
+    ]
+  }
+}
+```
+
+### Request Body (Layout with Rotation)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "name": "VIP Section",
+    "canvasHeight": 2000,
+    "canvasWidth": 2000,
+    "items": [
+      {
+        "tableName": "201",
+        "type": "ItemType.table",
+        "shape": "ItemShape.square",
+        "width": 403.33,
+        "height": 301.67,
+        "positionX": 0,
+        "positionY": 0,
+        "rotation": 45
+      },
+      {
+        "tableName": "202",
+        "type": "ItemType.table",
+        "shape": "ItemShape.rectangle",
+        "width": 441.67,
+        "height": 325,
+        "positionX": 0,
+        "positionY": 1675,
+        "rotation": 90
+      },
+      {
+        "objectName": "Bar",
+        "type": "ItemType.object",
+        "shape": "ItemShape.square",
+        "width": 531.67,
+        "height": 326.67,
+        "positionX": 771.67,
+        "positionY": 0
+      }
+    ]
+  }
+}
+```
+
+### Request Body (Complex Layout with Mixed Items)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "name": "Complete Venue Layout",
+    "canvasHeight": 2000,
+    "canvasWidth": 2000,
+    "items": [
+      {
+        "tableName": "101",
+        "type": "ItemType.table",
+        "shape": "ItemShape.square",
+        "width": 403.33,
+        "height": 301.67,
+        "positionX": 0,
+        "positionY": 0,
+        "rotation": 0
+      },
+      {
+        "tableName": "102",
+        "type": "ItemType.table",
+        "shape": "ItemShape.circle",
+        "width": 378.33,
+        "height": 378.33,
+        "positionX": 1621.67,
+        "positionY": 0,
+        "rotation": 15
+      },
+      {
+        "tableName": "201",
+        "type": "ItemType.table",
+        "shape": "ItemShape.rectangle",
+        "width": 441.67,
+        "height": 325,
+        "positionX": 0,
+        "positionY": 1675,
+        "rotation": 30
+      },
+      {
+        "tableName": "202",
+        "type": "ItemType.table",
+        "shape": "ItemShape.oval",
+        "width": 396.67,
+        "height": 396.67,
+        "positionX": 1603.33,
+        "positionY": 1596.67,
+        "rotation": 60
+      },
+      {
+        "objectName": "Bar",
+        "type": "ItemType.object",
+        "shape": "ItemShape.square",
+        "width": 531.67,
+        "height": 326.67,
+        "positionX": 771.67,
+        "positionY": 0
+      },
+      {
+        "objectName": "Dance Floor",
+        "type": "ItemType.object",
+        "shape": "ItemShape.circle",
+        "width": 873.33,
+        "height": 873.33,
+        "positionX": 605,
+        "positionY": 611.67
+      }
+    ]
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `name`, `canvasHeight`, `canvasWidth`, `items` are required
+- `name` must be 1-100 characters
+- `canvasHeight` and `canvasWidth` must be 100-10000
+- `items` must be an array with 1-1000 items
+- Each item must have:
+  - `type`: "ItemType.table" or "ItemType.object"
+  - `shape`: "ItemShape.square", "ItemShape.circle", "ItemShape.rectangle", or "ItemShape.oval"
+  - `width`, `height`, `positionX`, `positionY`: numbers within valid ranges
+  - `tableName`: required if `type` is "ItemType.table"
+  - `objectName`: required if `type` is "ItemType.object"
+  - `rotation`: optional, 0-360 degrees
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Table layout created successfully",
+    "data": {
+      "layoutId": "auto-generated-layout-id",
+      "name": "Main Area",
+      "canvasHeight": 2000,
+      "canvasWidth": 2000,
+      "itemsCount": 2,
+      "tablesCount": 2,
+      "objectsCount": 0,
+      "createdBy": "Amir Company Ehsani",
+      "createdAt": "2025-09-03T07:07:54.000Z"
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **Validation**: Checks if company exists and validates all input data
+2. **Auto-Generated ID**: Creates unique document ID for the layout
+3. **Item Validation**: Ensures proper field requirements for tables vs objects
+4. **Database Creation**: Saves layout in `companies/{companyId}/layouts/{layoutId}`
+5. **Activity Logging**: Creates log entry with creation details
+6. **Statistics**: Counts tables, objects, and total items
+
+### Database Structure
+
+**Layout Document:**
+```json
+{
+  "name": "Main Area",
+  "canvasHeight": 2000,
+  "canvasWidth": 2000,
+  "createdAt": "2025-09-03T07:07:54.000Z",
+  "createdBy": "user-id",
+  "items": [
+    {
+      "tableName": "101",
+      "type": "ItemType.table",
+      "shape": "ItemShape.square",
+      "width": 403.33,
+      "height": 301.67,
+      "positionX": 0,
+      "positionY": 0,
+      "rotation": 45
+    }
+  ]
+}
+```
+
+### Key Features
+
+✅ **Auto-Generated Layout ID** - No need to provide layout ID  
+✅ **Rotation Support** - Tables can be rotated 0-360 degrees  
+✅ **Mixed Item Types** - Supports both tables and objects  
+✅ **Flexible Shapes** - Square, circle, rectangle, oval support  
+✅ **Canvas Sizing** - Customizable canvas dimensions  
+✅ **Smart Validation** - Ensures proper field requirements  
+✅ **Activity Logging** - Comprehensive audit trail  
+
+### Error Responses
+
+**Company not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Company not found"
+  }
+}
+```
+
+**Validation error:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Validation error: \"items[0].tableName\" is required"
+  }
+}
+```
+
+**Invalid rotation:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Validation error: \"items[0].rotation\" must be a number between 0 and 360"
+  }
+}
+```
+
+### Table Layout Workflow Examples
+
+### Scenario 1: Create Basic Layout
+
+1. **Design layout** with tables and objects
+2. **Set canvas dimensions** (typically 2000x2000)
+3. **Create layout** with `createTableLayout`
+4. **Use layout ID** in event creation
+
+### Scenario 2: Create Rotated Tables
+
+1. **Add rotation angles** to table items (0-360 degrees)
+2. **Mix rotated and non-rotated** tables
+3. **Include objects** without rotation
+4. **Save complete layout** with all positioning
+
+### Scenario 3: Complex Venue Layout
+
+1. **Plan multiple areas** (VIP, general, bar, dance floor)
+2. **Use different shapes** for variety
+3. **Position items precisely** with coordinates
+4. **Add rotation** for dynamic layouts
+
+### Best Practices
+
+✅ **Start Simple** - Begin with basic layouts, add complexity gradually  
+✅ **Use Rotation Wisely** - Rotate tables for better space utilization  
+✅ **Mix Item Types** - Combine tables and objects for complete layouts  
+✅ **Plan Canvas Size** - Use consistent canvas dimensions (2000x2000)  
+✅ **Validate Coordinates** - Ensure items fit within canvas bounds  
+✅ **Name Items Clearly** - Use descriptive table and object names  
+✅ **Test Layouts** - Verify layouts work in your application
+
+## Testing the updateTableLayout Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/updateTableLayout`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body (Update Name Only)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "layoutId": "existing-layout-id",
+    "name": "Updated Main Area"
+  }
+}
+```
+
+### Request Body (Update Canvas Dimensions)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "layoutId": "existing-layout-id",
+    "canvasHeight": 2500,
+    "canvasWidth": 2500
+  }
+}
+```
+
+### Request Body (Update Items with Rotation)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "layoutId": "existing-layout-id",
+    "items": [
+      {
+        "tableName": "101",
+        "type": "ItemType.table",
+        "shape": "ItemShape.square",
+        "width": 403.33,
+        "height": 301.67,
+        "positionX": 0,
+        "positionY": 0,
+        "rotation": 45
+      },
+      {
+        "tableName": "102",
+        "type": "ItemType.table",
+        "shape": "ItemShape.circle",
+        "width": 378.33,
+        "height": 378.33,
+        "positionX": 1621.67,
+        "positionY": 0,
+        "rotation": 90
+      },
+      {
+        "objectName": "Bar",
+        "type": "ItemType.object",
+        "shape": "ItemShape.square",
+        "width": 531.67,
+        "height": 326.67,
+        "positionX": 771.67,
+        "positionY": 0
+      }
+    ]
+  }
+}
+```
+
+### Request Body (Update Multiple Fields)
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "layoutId": "existing-layout-id",
+    "name": "VIP Section Updated",
+    "canvasHeight": 2000,
+    "canvasWidth": 2000,
+    "items": [
+      {
+        "tableName": "201",
+        "type": "ItemType.table",
+        "shape": "ItemShape.rectangle",
+        "width": 441.67,
+        "height": 325,
+        "positionX": 0,
+        "positionY": 1675,
+        "rotation": 30
+      },
+      {
+        "tableName": "202",
+        "type": "ItemType.table",
+        "shape": "ItemShape.oval",
+        "width": 396.67,
+        "height": 396.67,
+        "positionX": 1603.33,
+        "positionY": 1596.67,
+        "rotation": 60
+      },
+      {
+        "objectName": "Dance Floor",
+        "type": "ItemType.object",
+        "shape": "ItemShape.circle",
+        "width": 873.33,
+        "height": 873.33,
+        "positionX": 605,
+        "positionY": 611.67
+      }
+    ]
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `layoutId` are required
+- All other fields are optional - only send what you want to update
+- `name` must be 1-100 characters (if provided)
+- `canvasHeight` and `canvasWidth` must be 100-10000 (if provided)
+- `items` must be an array with 1-1000 items (if provided)
+- Each item must have:
+  - `type`: "ItemType.table" or "ItemType.object"
+  - `shape`: "ItemShape.square", "ItemShape.circle", "ItemShape.rectangle", or "ItemShape.oval"
+  - `width`, `height`, `positionX`, `positionY`: numbers within valid ranges
+  - `tableName`: required if `type` is "ItemType.table"
+  - `objectName`: required if `type` is "ItemType.object"
+  - `rotation`: optional, 0-360 degrees
+
+### Expected Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Table layout updated successfully",
+    "data": {
+      "layoutId": "existing-layout-id",
+      "name": "VIP Section Updated",
+      "canvasHeight": 2000,
+      "canvasWidth": 2000,
+      "itemsCount": 3,
+      "tablesCount": 2,
+      "objectsCount": 1,
+      "changes": ["name", "canvasHeight", "canvasWidth", "items"],
+      "updatedBy": "Amir Company Ehsani",
+      "updatedAt": "2025-09-03T10:30:00.000Z"
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **Validation**: Checks if company and layout exist
+2. **Change Detection**: Only updates fields that are provided
+3. **Item Validation**: Validates items if provided (tableName for tables, objectName for objects)
+4. **Partial Updates**: Updates only the specified fields
+5. **Activity Logging**: Creates detailed log entry with changes
+6. **Statistics**: Calculates and returns updated counts
+
+### Key Features
+
+✅ **Partial Updates** - Only update fields you specify  
+✅ **Smart Validation** - Ensures proper field requirements  
+✅ **Rotation Support** - Full 0-360 degree rotation  
+✅ **Change Detection** - Prevents unnecessary updates  
+✅ **Comprehensive Logging** - Detailed audit trail  
+✅ **Error Handling** - Robust validation and error messages  
+✅ **Statistics** - Returns updated counts and changes  
+
+### Error Responses
+
+**Layout not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Layout not found"
+  }
+}
+```
+
+**Company not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Company not found"
+  }
+}
+```
+
+**No changes detected:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "No changes detected"
+  }
+}
+```
+
+**Validation error:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Validation error: \"items[0].tableName\" is required for ItemType.table"
+  }
+}
+```
+
+### Table Layout Update Workflow Examples
+
+### Scenario 1: Rename Layout
+
+1. **Update layout name** only
+2. **Keep all other fields** unchanged
+3. **Minimal update** with just name change
+
+### Scenario 2: Resize Canvas
+
+1. **Update canvas dimensions** for larger/smaller layouts
+2. **Adjust items** if needed to fit new canvas
+3. **Maintain layout proportions**
+
+### Scenario 3: Add Rotation to Tables
+
+1. **Update items array** with rotation values
+2. **Mix rotated and non-rotated** tables
+3. **Add new items** with rotation
+
+### Scenario 4: Complete Layout Redesign
+
+1. **Update multiple fields** at once
+2. **Replace entire items array** with new layout
+3. **Change name and dimensions** together
+
+### Best Practices
+
+✅ **Update Incrementally** - Make small changes and test  
+✅ **Validate Changes** - Check that updates work as expected  
+✅ **Use Rotation Wisely** - Rotate tables for better space utilization  
+✅ **Backup Important Layouts** - Keep copies of working layouts  
+✅ **Test After Updates** - Verify layouts work in your application  
+✅ **Monitor Activity Logs** - Track all layout changes  
+✅ **Plan Updates** - Consider impact on existing events using the layout
