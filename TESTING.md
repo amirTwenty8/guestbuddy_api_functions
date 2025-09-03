@@ -13,25 +13,26 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 7. **clearGuestDraft** - Clear a saved draft for multiple guests
 8. **updateGuest** - Update an existing guest's details with summary recalculation
 9. **checkInGuest** - Check in guests or edit check-in counts with rapid tapping support
-10. **createAccount** - Create a new user account with Firebase Auth and Firestore data
-11. **verifyEmail** - Verify email with 6-digit verification code
-12. **resendVerificationEmail** - Resend verification email to user
-13. **checkExistingUser** - Check if a user exists with the given phone number (first step of table booking)
-14. **bookTable** - Book a table for an event (second step of table booking, requires user choice)
-15. **sendSmsNotification** - Send SMS notifications for booking confirmations or reminders
-16. **updateTable** - Update table information after booking with logging and spending tracking
-17. **cancelReservation** - Cancel a table reservation and remove all guest data except staff
-18. **resellTable** - Re-sell a table during an event while preserving historical data
-19. **addUserToCompany** - Add users to a company, either by finding existing users or creating new ones
-20. **editUserInCompany** - Edit user information and change their role within a company
-21. **removeUserFromCompany** - Remove users from a company and manage their business mode
-22. **createEventTicket** - Create tickets for an event with auto-generated UUID and ticket summary management
-23. **createClubCard** - Create club cards with auto-generated QR codes and Firebase Storage uploads
-24. **updateClubCard** - Update club card details and generate additional QR codes when needed
-25. **deleteClubCard** - Delete club cards with validation that they're not in use
-26. **createTableLayout** - Create table layouts from canvas objects with rotation support
-27. **updateTableLayout** - Update existing table layouts with partial field updates and rotation support
-28. **deleteTableLayout** - Delete table layouts with safety validation to prevent deletion of layouts in use
+10. **deleteGuest** - Delete one or multiple guests from guest lists with summary updates
+11. **createAccount** - Create a new user account with Firebase Auth and Firestore data
+12. **verifyEmail** - Verify email with 6-digit verification code
+13. **resendVerificationEmail** - Resend verification email to user
+14. **checkExistingUser** - Check if a user exists with the given phone number (first step of table booking)
+15. **bookTable** - Book a table for an event (second step of table booking, requires user choice)
+16. **sendSmsNotification** - Send SMS notifications for booking confirmations or reminders
+17. **updateTable** - Update table information after booking with logging and spending tracking
+18. **cancelReservation** - Cancel a table reservation and remove all guest data except staff
+19. **resellTable** - Re-sell a table during an event while preserving historical data
+20. **addUserToCompany** - Add users to a company, either by finding existing users or creating new ones
+21. **editUserInCompany** - Edit user information and change their role within a company
+22. **removeUserFromCompany** - Remove users from a company and manage their business mode
+23. **createEventTicket** - Create tickets for an event with auto-generated UUID and ticket summary management
+24. **createClubCard** - Create club cards with auto-generated QR codes and Firebase Storage uploads
+25. **updateClubCard** - Update club card details and generate additional QR codes when needed
+26. **deleteClubCard** - Delete club cards with validation that they're not in use
+27. **createTableLayout** - Create table layouts from canvas objects with rotation support
+28. **updateTableLayout** - Update existing table layouts with partial field updates and rotation support
+29. **deleteTableLayout** - Delete table layouts with safety validation to prevent deletion of layouts in use
 
 ## Prerequisites
 
@@ -1015,6 +1016,7 @@ This will only update the spent amount and create a log entry with the action "s
   "data": {
     "eventId": "existing-event-id",
     "companyId": "YOUR_COMPANY_ID",
+    "guestListId": "main",
     "guestName": "John Doe",
     "normalGuests": 2,
     "freeGuests": 1,
@@ -1027,7 +1029,10 @@ This will only update the spent amount and create a log entry with the action "s
 
 > **Important**: 
 > - **Required fields**: `eventId`, `companyId`, `guestName`
-> - **Optional fields**: `normalGuests` (default: 0), `freeGuests` (default: 0), `comment`, `categories`, `selectedUserId`
+> - **Optional fields**: `guestListId` (default: "main"), `normalGuests` (default: 0), `freeGuests` (default: 0), `comment`, `categories`, `selectedUserId`
+> - **Guest List Selection**: 
+>   - `guestListId`: "main" for default guest list, or UUID for additional guest lists
+>   - If not provided, defaults to "main" (backward compatible)
 > - At least one of `normalGuests` or `freeGuests` must be greater than 0
 > - The function will automatically update guest list summary statistics
 > - **User ID handling**: 
@@ -1051,7 +1056,8 @@ This will only update the spent amount and create a log entry with the action "s
       "addedBy": "John Doe",
       "addedAt": "2023-08-01T18:00:00.000Z",
       "userIdForCompanyGuests": "existing-user-id-or-generated-uuid",
-      "userType": "existing"
+      "userType": "existing",
+      "guestListId": "main"
     }
   }
 }
@@ -1064,6 +1070,40 @@ This will only update the spent amount and create a log entry with the action "s
   "result": {
     "success": false,
     "error": "At least one guest type must have a value greater than 0"
+  }
+}
+```
+
+### Additional Guest List Examples
+
+#### Add Guest to VIP List:
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "companyId": "YOUR_COMPANY_ID",
+    "guestListId": "uuid-of-vip-guest-list",
+    "guestName": "VIP Guest",
+    "normalGuests": 3,
+    "freeGuests": 0,
+    "comment": "VIP section",
+    "categories": ["VIP"]
+  }
+}
+```
+
+#### Add Guest to Staff List:
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "companyId": "YOUR_COMPANY_ID",
+    "guestListId": "uuid-of-staff-list",
+    "guestName": "Staff Member",
+    "normalGuests": 1,
+    "freeGuests": 0,
+    "comment": "Event staff",
+    "categories": ["Staff"]
   }
 }
 ```
@@ -1085,6 +1125,7 @@ This will only update the spent amount and create a log entry with the action "s
   "data": {
     "eventId": "existing-event-id",
     "companyId": "YOUR_COMPANY_ID",
+    "guestListId": "main",
     "guestsText": "John Doe +2 +3\nJane Smith +1 +2\nBob Johnson +0 +1"
   }
 }
@@ -1092,6 +1133,10 @@ This will only update the spent amount and create a log entry with the action "s
 
 > **Important**: 
 > - **Required fields**: `eventId`, `companyId`, `guestsText`
+> - **Optional fields**: `guestListId` (default: "main")
+> - **Guest List Selection**: 
+>   - `guestListId`: "main" for default guest list, or UUID for additional guest lists
+>   - If not provided, defaults to "main" (backward compatible)
 > - **Format**: Each line should be "FirstName LastName +free +paid"
 > - **Example**: "John Doe +2 +3" means 2 free guests and 3 paid guests
 > - The function will parse each line and create individual guest entries
@@ -1111,7 +1156,8 @@ This will only update the spent amount and create a log entry with the action "s
       "totalGuests": 9,
       "addedBy": "John Doe",
       "addedAt": "2023-08-01T18:00:00.000Z",
-      "guestNames": ["John Doe", "Jane Smith", "Bob Johnson"]
+      "guestNames": ["John Doe", "Jane Smith", "Bob Johnson"],
+      "guestListId": "main"
     }
   }
 }
@@ -1205,6 +1251,7 @@ This will only update the spent amount and create a log entry with the action "s
   "data": {
     "eventId": "existing-event-id",
     "companyId": "YOUR_COMPANY_ID",
+    "guestListId": "main",
     "guestId": "existing-guest-id",
     "guestName": "Updated Guest Name",
     "normalGuests": 3,
@@ -1217,7 +1264,10 @@ This will only update the spent amount and create a log entry with the action "s
 
 > **Important**: 
 > - **Required fields**: `eventId`, `companyId`, `guestId`
-> - **Optional fields**: `guestName`, `normalGuests`, `freeGuests`, `comment`, `categories`
+> - **Optional fields**: `guestListId` (default: "main"), `guestName`, `normalGuests`, `freeGuests`, `comment`, `categories`
+> - **Guest List Selection**: 
+>   - `guestListId`: "main" for default guest list, or UUID for additional guest lists
+>   - If not provided, defaults to "main" (backward compatible)
 > - Only send the fields you want to update
 > - The function will calculate differences and update summary statistics accordingly
 > - Changes are logged with user information and timestamp
@@ -1246,7 +1296,8 @@ This will only update the spent amount and create a log entry with the action "s
         "comment": "Updated comment",
         "categories": ["VIP"]
       },
-      "summaryUpdated": true
+      "summaryUpdated": true,
+      "guestListId": "main"
     }
   }
 }
@@ -1261,6 +1312,7 @@ You can also update only specific fields:
   "data": {
     "eventId": "existing-event-id",
     "companyId": "YOUR_COMPANY_ID",
+    "guestListId": "main",
     "guestId": "existing-guest-id",
     "guestName": "New Name Only"
   }
@@ -1286,6 +1338,7 @@ This will only update the guest name and leave all other fields unchanged.
   "data": {
     "eventId": "existing-event-id",
     "companyId": "YOUR_COMPANY_ID",
+    "guestListId": "main",
     "guestId": "existing-guest-id",
     "normalIncrement": 1,
     "freeIncrement": 0,
@@ -1301,6 +1354,7 @@ This will only update the guest name and leave all other fields unchanged.
   "data": {
     "eventId": "existing-event-id",
     "companyId": "YOUR_COMPANY_ID",
+    "guestListId": "main",
     "guestId": "existing-guest-id",
     "normalCheckedIn": 3,
     "freeCheckedIn": 1,
@@ -1311,6 +1365,10 @@ This will only update the guest name and leave all other fields unchanged.
 
 > **Important**: 
 > - **Required fields**: `eventId`, `companyId`, `guestId`, `action`
+> - **Optional fields**: `guestListId` (default: "main")
+> - **Guest List Selection**: 
+>   - `guestListId`: "main" for default guest list, or UUID for additional guest lists
+>   - If not provided, defaults to "main" (backward compatible)
 > - **Increment mode**: Use `normalIncrement` and `freeIncrement` to add to existing counts
 > - **Set mode**: Use `normalCheckedIn` and `freeCheckedIn` to set specific counts
 > - **Action**: Must be either "increment" or "set"
@@ -1339,7 +1397,8 @@ This will only update the guest name and leave all other fields unchanged.
       "changes": {
         "normalCheckedIn": 3
       },
-      "summaryUpdated": true
+      "summaryUpdated": true,
+      "guestListId": "main"
     }
   }
 }
@@ -1367,7 +1426,8 @@ This will only update the guest name and leave all other fields unchanged.
         "normalCheckedIn": 3,
         "freeCheckedIn": 1
       },
-      "summaryUpdated": true
+      "summaryUpdated": true,
+      "guestListId": "main"
     }
   }
 }
@@ -1383,6 +1443,271 @@ This will only update the guest name and leave all other fields unchanged.
   }
 }
 ```
+
+### Additional Guest List Examples
+
+#### Check In Guest from VIP List:
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "companyId": "YOUR_COMPANY_ID",
+    "guestListId": "uuid-of-vip-guest-list",
+    "guestId": "vip-guest-id",
+    "normalIncrement": 1,
+    "freeIncrement": 0,
+    "action": "increment"
+  }
+}
+```
+
+#### Check In Guest from Staff List:
+```json
+{
+  "data": {
+    "eventId": "existing-event-id",
+    "companyId": "YOUR_COMPANY_ID",
+    "guestListId": "uuid-of-staff-list",
+    "guestId": "staff-guest-id",
+    "normalCheckedIn": 1,
+    "freeCheckedIn": 0,
+    "action": "set"
+  }
+}
+```
+
+## Multiple Guest Lists Feature
+
+The GuestBuddy API now supports multiple guest lists per event, allowing you to organize guests into different categories (e.g., VIP, Staff, Press, etc.) while maintaining a single event structure.
+
+### How It Works
+
+1. **Default Guest List**: Every event automatically has a "main" guest list
+2. **Additional Guest Lists**: You can create additional guest lists when creating or updating events
+3. **Dynamic Selection**: All guest functions now accept a `guestListId` parameter to specify which list to work with
+4. **Backward Compatibility**: If no `guestListId` is provided, functions default to "main"
+
+### Guest List Structure
+
+#### Main Guest List (Default)
+```
+guest_lists/main
+├── eventId: "event-id"
+├── guestList: [array of guests]
+└── lastUpdated: timestamp
+```
+
+#### Additional Guest Lists
+```
+guest_lists/{uuid}
+├── eventId: "event-id"
+├── guestList: [array of guests]
+├── guestListName: "VIP Guests"  // The name you provided
+└── lastUpdated: timestamp
+```
+
+### Creating Additional Guest Lists
+
+When creating or updating an event, include the `additionalGuestLists` array:
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "eventName": "VIP Night",
+    "startDateTime": "2025-09-01T18:00:00Z",
+    "endDateTime": "2025-09-01T23:00:00Z",
+    "additionalGuestLists": ["VIP Guests", "Staff", "Press"]
+  }
+}
+```
+
+This will create:
+- `guest_lists/main` (default)
+- `guest_lists/{uuid1}` with `guestListName: "VIP Guests"`
+- `guest_lists/{uuid2}` with `guestListName: "Staff"`
+- `guest_lists/{uuid3}` with `guestListName: "Press"`
+
+### Using Guest Lists in Functions
+
+All guest management functions now support the `guestListId` parameter:
+
+#### Add Guest to VIP List
+```json
+{
+  "data": {
+    "eventId": "event-id",
+    "companyId": "company-id",
+    "guestListId": "uuid-of-vip-list",
+    "guestName": "VIP Guest",
+    "normalGuests": 3
+  }
+}
+```
+
+#### Update Guest in Staff List
+```json
+{
+  "data": {
+    "eventId": "event-id",
+    "companyId": "company-id",
+    "guestListId": "uuid-of-staff-list",
+    "guestId": "guest-id",
+    "normalGuests": 5
+  }
+}
+```
+
+#### Check In Guest from Press List
+```json
+{
+  "data": {
+    "eventId": "event-id",
+    "companyId": "company-id",
+    "guestListId": "uuid-of-press-list",
+    "guestId": "guest-id",
+    "normalIncrement": 1,
+    "action": "increment"
+  }
+}
+```
+
+### Benefits
+
+- **Organized Management**: Separate guest lists for different categories
+- **Flexible Operations**: Add, update, and check-in guests from any list
+- **Unified Summary**: All guest lists contribute to the same event summary
+- **Backward Compatible**: Existing integrations continue to work with "main" list
+- **Scalable**: No limit on the number of additional guest lists
+
+## Testing the deleteGuest Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/deleteGuest`
+- **Method**: `POST`
+- **Content-Type**: `application/json`
+
+### Request Body (Single Guest Deletion)
+
+```json
+{
+  "data": {
+    "eventId": "event-uuid-here",
+    "companyId": "company-id-here",
+    "guestListId": "main",
+    "guestId": "guest-id-to-delete"
+  }
+}
+```
+
+### Request Body (Multiple Guests Deletion)
+
+```json
+{
+  "data": {
+    "eventId": "event-uuid-here",
+    "companyId": "company-id-here",
+    "guestListId": "main",
+    "guestIds": ["guest-id-1", "guest-id-2", "guest-id-3"]
+  }
+}
+```
+
+### Request Body (Additional Guest List)
+
+```json
+{
+  "data": {
+    "eventId": "event-uuid-here",
+    "companyId": "company-id-here",
+    "guestListId": "additional-guest-list-uuid",
+    "guestId": "guest-id-to-delete"
+  }
+}
+```
+
+### Response (Success)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Guest deleted successfully",
+    "data": {
+      "guestsDeleted": 1,
+      "guestIds": ["guest-id-to-delete"],
+      "guestNames": ["John Doe"],
+      "totalNormalGuestsRemoved": 2,
+      "totalFreeGuestsRemoved": 1,
+      "totalGuestsRemoved": 3,
+      "totalCheckedInRemoved": 1,
+      "deletedBy": "Admin User",
+      "deletedAt": "2025-01-27T12:00:00.000Z",
+      "guestListId": "main"
+    }
+  }
+}
+```
+
+### Response (Multiple Guests Success)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Guests deleted successfully",
+    "data": {
+      "guestsDeleted": 3,
+      "guestIds": ["guest-id-1", "guest-id-2", "guest-id-3"],
+      "guestNames": ["John Doe", "Jane Smith", "Bob Johnson"],
+      "totalNormalGuestsRemoved": 6,
+      "totalFreeGuestsRemoved": 3,
+      "totalGuestsRemoved": 9,
+      "totalCheckedInRemoved": 2,
+      "deletedBy": "Admin User",
+      "deletedAt": "2025-01-27T12:00:00.000Z",
+      "guestListId": "main"
+    }
+  }
+}
+```
+
+### Response (Error - Guest Not Found)
+
+```json
+{
+  "result": {
+    "success": false,
+    "error": "No guests found to delete"
+  }
+}
+```
+
+### Response (Error - Guest List Not Found)
+
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Guest list not found"
+  }
+}
+```
+
+### Important Notes
+
+> - **Required fields**: `eventId`, `companyId`, and either `guestId` OR `guestIds`
+> - **Optional fields**: `guestListId` (default: "main")
+> - **Guest List Selection**: 
+>   - `guestListId`: "main" for default guest list, or UUID for additional guest lists
+>   - If not provided, defaults to "main" (backward compatible)
+> - **Deletion Options**:
+>   - Single guest: Provide `guestId` (string)
+>   - Multiple guests: Provide `guestIds` (array of strings)
+> - **Summary Updates**: Automatically decrements all relevant summary statistics
+> - **Logging**: Creates log entries for each deleted guest with deletion details
+> - **Transaction Safety**: All operations are performed in a single transaction
 
 ## Testing the createAccount Function
 
