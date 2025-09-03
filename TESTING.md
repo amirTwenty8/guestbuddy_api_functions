@@ -3745,3 +3745,669 @@ The function prevents deletion in these scenarios:
 - Invalid request data
 
 This ensures data integrity and prevents broken references in your application.
+
+## Testing the Chat API Functions
+
+The Chat API provides comprehensive messaging and table booking functionality with the following endpoints:
+
+### Available Chat Endpoints
+
+1. **Get User Conversations** - Get all conversations for a specific user
+2. **Get Company Conversations** - Get all conversations for a specific company
+3. **Get Messages** - Get all messages for a conversation
+4. **Send Message** - Send a message in a conversation
+5. **Mark Conversation as Read** - Mark all messages in a conversation as read
+6. **Create Table Booking** - Create a table booking request with conversation
+7. **Update Booking Status** - Update table booking status (company staff only)
+8. **Get User Bookings** - Get all bookings for a specific user
+9. **Get Company Bookings** - Get all bookings for a specific company
+
+### Base URL
+
+All chat endpoints use the following base URL:
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat`
+
+## Testing Get User Conversations
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/conversations/user/{userId}`
+- **Method**: GET
+- **Headers**: 
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `userId`: The user ID to get conversations for
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "user-id_company-id",
+      "userId": "user-id",
+      "companyId": "company-id",
+      "userFirstName": "John",
+      "userLastName": "Doe",
+      "companyName": "Restaurant XYZ",
+      "lastMessage": "Your table booking has been confirmed! 🎉",
+      "lastUpdated": "2025-01-20T15:30:00.000Z",
+      "unreadCountUser": 0,
+      "unreadCountCompany": 1,
+      "isActive": true,
+      "createdAt": "2025-01-20T14:00:00.000Z"
+    }
+  ]
+}
+```
+
+### Error Response (Permission Denied)
+
+```json
+{
+  "success": false,
+  "error": "Permission denied"
+}
+```
+
+### What the Endpoint Does
+
+1. **Permission Check**: Verifies the requesting user can access the conversations (must be the user or admin)
+2. **Query Conversations**: Gets all active conversations for the user
+3. **Ordering**: Returns conversations ordered by last updated (newest first)
+4. **Active Filter**: Only returns conversations where `isActive` is true
+
+## Testing Get Company Conversations
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/conversations/company/{companyId}`
+- **Method**: GET
+- **Headers**: 
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `companyId`: The company ID to get conversations for
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "user-id_company-id",
+      "userId": "user-id",
+      "companyId": "company-id",
+      "userFirstName": "John",
+      "userLastName": "Doe",
+      "companyName": "Restaurant XYZ",
+      "lastMessage": "Table booking request submitted for 1/20/2025 at 8:00:00 PM for 4 people.",
+      "lastUpdated": "2025-01-20T15:30:00.000Z",
+      "unreadCountUser": 1,
+      "unreadCountCompany": 0,
+      "isActive": true,
+      "createdAt": "2025-01-20T14:00:00.000Z"
+    }
+  ]
+}
+```
+
+### Error Response (Company Not Found)
+
+```json
+{
+  "success": false,
+  "error": "Company not found"
+}
+```
+
+### What the Endpoint Does
+
+1. **Company Validation**: Checks if the company exists
+2. **Permission Check**: Verifies the user has access to the company (staff member or admin)
+3. **Query Conversations**: Gets all active conversations for the company
+4. **Role-Based Access**: Supports admins, editors, promotors, tableStaff, and staff roles
+
+## Testing Get Messages
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/messages/{conversationId}`
+- **Method**: GET
+- **Headers**: 
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `conversationId`: The conversation ID to get messages for
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "message-id-1",
+      "conversationId": "user-id_company-id",
+      "senderId": "user-id",
+      "senderType": "user",
+      "message": "Hi, I'd like to book a table for tonight at 8 PM for 4 people.",
+      "messageType": "text",
+      "timestamp": "2025-01-20T14:00:00.000Z",
+      "readStatus": true,
+      "metadata": null
+    },
+    {
+      "id": "message-id-2",
+      "conversationId": "user-id_company-id",
+      "senderId": "company-staff-id",
+      "senderType": "company",
+      "message": "Your table booking has been confirmed! 🎉",
+      "messageType": "booking",
+      "timestamp": "2025-01-20T15:30:00.000Z",
+      "readStatus": false,
+      "metadata": {
+        "bookingId": "booking-id",
+        "status": "confirmed"
+      }
+    }
+  ]
+}
+```
+
+### Error Response (Conversation Not Found)
+
+```json
+{
+  "success": false,
+  "error": "Conversation not found"
+}
+```
+
+### What the Endpoint Does
+
+1. **Conversation Validation**: Checks if the conversation exists
+2. **Permission Check**: Verifies the user has access to the conversation
+3. **Query Messages**: Gets all messages ordered by timestamp (oldest first)
+4. **Message Structure**: Returns complete message data including metadata
+
+## Testing Send Message
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/messages/{conversationId}`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `conversationId`: The conversation ID to send the message to
+
+### Request Body (Text Message)
+
+```json
+{
+  "message": "Thank you for the confirmation! Looking forward to dining with you tonight.",
+  "messageType": "text"
+}
+```
+
+### Request Body (Message with Metadata)
+
+```json
+{
+  "message": "Here are the special dietary requirements for our table.",
+  "messageType": "text",
+  "metadata": {
+    "requirements": ["vegetarian", "gluten-free"],
+    "tableSize": 4
+  }
+}
+```
+
+### Validation Rules
+
+- `message` is required and must be a string
+- `messageType` defaults to "text" if not provided
+- `metadata` is optional and can contain any additional data
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "generated-message-id",
+    "conversationId": "user-id_company-id",
+    "senderId": "user-id",
+    "senderType": "user",
+    "message": "Thank you for the confirmation! Looking forward to dining with you tonight.",
+    "messageType": "text",
+    "timestamp": "2025-01-20T16:00:00.000Z",
+    "readStatus": false,
+    "metadata": null
+  }
+}
+```
+
+### What the Endpoint Does
+
+1. **Message Validation**: Ensures message is provided and valid
+2. **Conversation Access**: Checks user has permission to send messages
+3. **Sender Detection**: Automatically determines if sender is user or company
+4. **Message Creation**: Creates message with timestamp and metadata
+5. **Conversation Update**: Updates conversation with last message and unread counts
+6. **Unread Counter**: Increments unread count for the recipient
+
+## Testing Mark Conversation as Read
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/conversations/{conversationId}/read`
+- **Method**: PUT
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `conversationId`: The conversation ID to mark as read
+
+### Request Body
+
+```json
+{
+  "isUser": true
+}
+```
+
+### Validation Rules
+
+- `isUser`: Boolean indicating if the user (true) or company (false) is marking as read
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "message": "Conversation marked as read"
+}
+```
+
+### What the Endpoint Does
+
+1. **Conversation Validation**: Checks if conversation exists and user has access
+2. **Unread Count Reset**: Resets the appropriate unread counter to 0
+3. **Message Status Update**: Marks all unread messages as read
+4. **Batch Operation**: Uses Firestore batch to update multiple messages efficiently
+
+## Testing Create Table Booking
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/bookings`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "companyId": "company-id",
+  "date": "2025-01-20T20:00:00Z",
+  "numberOfPeople": 4,
+  "comments": "Celebrating anniversary, would prefer a quiet table",
+  "images": [
+    "https://firebasestorage.googleapis.com/v0/b/project/o/bookings%2Fimage1.jpg",
+    "https://firebasestorage.googleapis.com/v0/b/project/o/bookings%2Fimage2.jpg"
+  ]
+}
+```
+
+### Request Body (Minimal)
+
+```json
+{
+  "companyId": "company-id",
+  "date": "2025-01-20T20:00:00Z",
+  "numberOfPeople": 2
+}
+```
+
+### Validation Rules
+
+- `companyId`, `date`, `numberOfPeople` are required
+- `comments` and `images` are optional
+- `date` must be a valid ISO date string
+- `numberOfPeople` must be a positive integer
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "bookingId": "generated-booking-id",
+    "userId": "user-id",
+    "companyId": "company-id",
+    "conversationId": "user-id_company-id",
+    "date": "2025-01-20T20:00:00.000Z",
+    "numberOfPeople": 4,
+    "comments": "Celebrating anniversary, would prefer a quiet table",
+    "images": [
+      "https://firebasestorage.googleapis.com/v0/b/project/o/bookings%2Fimage1.jpg",
+      "https://firebasestorage.googleapis.com/v0/b/project/o/bookings%2Fimage2.jpg"
+    ],
+    "status": "pending",
+    "createdAt": "2025-01-20T16:30:00.000Z",
+    "userFirstName": "John",
+    "userLastName": "Doe",
+    "companyName": "Restaurant XYZ"
+  }
+}
+```
+
+### What the Endpoint Does
+
+1. **User Authentication**: Ensures user is authenticated
+2. **Company/User Validation**: Checks if both user and company exist
+3. **Conversation Management**: Creates conversation if it doesn't exist
+4. **Booking Creation**: Creates table booking with pending status
+5. **Message Generation**: Sends booking request message to conversation
+6. **Notification**: Updates conversation with new message and unread count
+
+## Testing Update Booking Status
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/bookings/{bookingId}/status`
+- **Method**: PUT
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `bookingId`: The booking ID to update
+
+### Request Body (Confirm Booking)
+
+```json
+{
+  "status": "confirmed",
+  "responseMessage": "We've reserved your table for 8 PM tonight. Looking forward to seeing you!"
+}
+```
+
+### Request Body (Reject Booking)
+
+```json
+{
+  "status": "rejected",
+  "responseMessage": "Unfortunately, we're fully booked for that time. Would 7:30 PM or 9:30 PM work for you?"
+}
+```
+
+### Request Body (Cancel Booking)
+
+```json
+{
+  "status": "cancelled"
+}
+```
+
+### Validation Rules
+
+- `status` is required and must be one of: "pending", "confirmed", "rejected", "cancelled"
+- `responseMessage` is optional but recommended for better customer communication
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "message": "Booking status updated successfully"
+}
+```
+
+### What the Endpoint Does
+
+1. **Booking Validation**: Checks if booking exists
+2. **Permission Check**: Verifies user has company access (staff member)
+3. **Status Update**: Updates booking status in database
+4. **Message Generation**: Creates appropriate status message
+5. **Conversation Update**: Sends status message to conversation
+6. **Customer Notification**: Increments user's unread count
+
+### Status Messages
+
+- **Confirmed**: "Your table booking has been confirmed! 🎉"
+- **Rejected**: "Your table booking has been rejected."
+- **Cancelled**: "Your table booking has been cancelled."
+
+## Testing Get User Bookings
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/bookings/user/{userId}`
+- **Method**: GET
+- **Headers**: 
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `userId`: The user ID to get bookings for
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "booking-id-1",
+      "userId": "user-id",
+      "companyId": "company-id",
+      "conversationId": "user-id_company-id",
+      "date": "2025-01-20T20:00:00.000Z",
+      "numberOfPeople": 4,
+      "comments": "Celebrating anniversary",
+      "images": [],
+      "status": "confirmed",
+      "createdAt": "2025-01-20T16:30:00.000Z",
+      "userFirstName": "John",
+      "userLastName": "Doe",
+      "companyName": "Restaurant XYZ"
+    },
+    {
+      "id": "booking-id-2",
+      "userId": "user-id",
+      "companyId": "another-company-id",
+      "conversationId": "user-id_another-company-id",
+      "date": "2025-01-25T19:00:00.000Z",
+      "numberOfPeople": 2,
+      "comments": null,
+      "images": [],
+      "status": "pending",
+      "createdAt": "2025-01-19T10:15:00.000Z",
+      "userFirstName": "John",
+      "userLastName": "Doe",
+      "companyName": "Cafe ABC"
+    }
+  ]
+}
+```
+
+### What the Endpoint Does
+
+1. **Permission Check**: Verifies requesting user can access the bookings
+2. **Query Bookings**: Gets all bookings for the user
+3. **Ordering**: Returns bookings ordered by creation date (newest first)
+4. **Complete Data**: Includes all booking details and company information
+
+## Testing Get Company Bookings
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/bookings/company/{companyId}`
+- **Method**: GET
+- **Headers**: 
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `companyId`: The company ID to get bookings for
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "booking-id-1",
+      "userId": "user-id-1",
+      "companyId": "company-id",
+      "conversationId": "user-id-1_company-id",
+      "date": "2025-01-20T20:00:00.000Z",
+      "numberOfPeople": 4,
+      "comments": "Celebrating anniversary",
+      "images": [],
+      "status": "confirmed",
+      "createdAt": "2025-01-20T16:30:00.000Z",
+      "userFirstName": "John",
+      "userLastName": "Doe",
+      "companyName": "Restaurant XYZ"
+    },
+    {
+      "id": "booking-id-2",
+      "userId": "user-id-2",
+      "companyId": "company-id",
+      "conversationId": "user-id-2_company-id",
+      "date": "2025-01-20T19:30:00.000Z",
+      "numberOfPeople": 6,
+      "comments": "Business dinner",
+      "images": [],
+      "status": "pending",
+      "createdAt": "2025-01-20T14:00:00.000Z",
+      "userFirstName": "Jane",
+      "userLastName": "Smith",
+      "companyName": "Restaurant XYZ"
+    }
+  ]
+}
+```
+
+### What the Endpoint Does
+
+1. **Company Validation**: Checks if company exists
+2. **Permission Check**: Verifies user has company access (staff member)
+3. **Query Bookings**: Gets all bookings for the company
+4. **Ordering**: Returns bookings ordered by creation date (newest first)
+5. **Staff Access**: Supports all company roles (admins, editors, promotors, tableStaff, staff)
+
+## Chat API Workflow Examples
+
+### Scenario 1: Customer Makes Table Booking
+
+1. **Create Booking**: Customer calls `POST /bookings` with date and party size
+2. **Automatic Conversation**: System creates conversation if it doesn't exist
+3. **Booking Message**: System sends booking request message to conversation
+4. **Company Notification**: Company sees new unread message about booking
+5. **Status Update**: Company staff calls `PUT /bookings/{id}/status` to confirm/reject
+6. **Customer Notification**: Customer receives status update message
+
+### Scenario 2: Ongoing Conversation
+
+1. **Get Messages**: Customer calls `GET /messages/{conversationId}` to see history
+2. **Send Message**: Customer calls `POST /messages/{conversationId}` with question
+3. **Company Response**: Company staff sends reply message
+4. **Mark as Read**: Both parties call `PUT /conversations/{id}/read` when viewing
+
+### Scenario 3: Company Management
+
+1. **View All Conversations**: Staff calls `GET /conversations/company/{id}` for overview
+2. **Check Bookings**: Staff calls `GET /bookings/company/{id}` for all pending bookings
+3. **Update Bookings**: Staff updates booking statuses as needed
+4. **Customer Communication**: Staff sends messages for clarifications
+
+### Best Practices
+
+✅ **Authentication Required** - All endpoints require valid Firebase Auth token  
+✅ **Permission-Based Access** - Users can only access their own data or company data they have access to  
+✅ **Real-time Updates** - Use Firestore listeners for real-time conversation updates  
+✅ **Message Types** - Use appropriate message types ("text", "booking") for better UX  
+✅ **Metadata Usage** - Include relevant metadata for booking messages  
+✅ **Read Status Management** - Mark conversations as read to maintain accurate unread counts  
+✅ **Error Handling** - Handle permission denied and not found errors gracefully  
+
+### Key Features
+
+✅ **Automatic Conversation Creation** - Conversations created automatically when needed  
+✅ **Unread Count Management** - Separate counters for user and company  
+✅ **Message Metadata** - Support for rich message data  
+✅ **Booking Integration** - Complete table booking workflow  
+✅ **Role-Based Access** - Support for different company roles  
+✅ **Message History** - Complete conversation history  
+✅ **Status Tracking** - Booking status management with notifications
+
+### Database Structure
+
+**Conversation Document:**
+```json
+{
+  "userId": "user-id",
+  "companyId": "company-id",
+  "userFirstName": "John",
+  "userLastName": "Doe",
+  "companyName": "Restaurant XYZ",
+  "lastMessage": "Your table booking has been confirmed! 🎉",
+  "lastUpdated": "2025-01-20T15:30:00.000Z",
+  "unreadCountUser": 0,
+  "unreadCountCompany": 1,
+  "isActive": true,
+  "createdAt": "2025-01-20T14:00:00.000Z"
+}
+```
+
+**Message Document:**
+```json
+{
+  "conversationId": "user-id_company-id",
+  "senderId": "user-id",
+  "senderType": "user",
+  "message": "Hi, I'd like to book a table for tonight.",
+  "messageType": "text",
+  "timestamp": "2025-01-20T14:00:00.000Z",
+  "readStatus": false,
+  "metadata": null
+}
+```
+
+**Table Booking Document:**
+```json
+{
+  "userId": "user-id",
+  "companyId": "company-id",
+  "conversationId": "user-id_company-id",
+  "date": "2025-01-20T20:00:00.000Z",
+  "numberOfPeople": 4,
+  "comments": "Celebrating anniversary",
+  "images": [],
+  "status": "pending",
+  "createdAt": "2025-01-20T16:30:00.000Z",
+  "userFirstName": "John",
+  "userLastName": "Doe",
+  "companyName": "Restaurant XYZ"
+}
+```
