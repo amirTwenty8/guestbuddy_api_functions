@@ -31,6 +31,7 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 25. **deleteClubCard** - Delete club cards with validation that they're not in use
 26. **createTableLayout** - Create table layouts from canvas objects with rotation support
 27. **updateTableLayout** - Update existing table layouts with partial field updates and rotation support
+28. **deleteTableLayout** - Delete table layouts with safety validation to prevent deletion of layouts in use
 
 ## Prerequisites
 
@@ -3566,3 +3567,181 @@ const ticketData = {
 ✅ **Test After Updates** - Verify layouts work in your application  
 ✅ **Monitor Activity Logs** - Track all layout changes  
 ✅ **Plan Updates** - Consider impact on existing events using the layout
+
+## Testing the deleteTableLayout Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/deleteTableLayout`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "layoutId": "existing-layout-id"
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId` and `layoutId` are required
+- Layout must exist in the specified company
+- Layout cannot be deleted if it's currently used in any events
+
+### Expected Response (Success)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Table layout deleted successfully",
+    "data": {
+      "layoutId": "existing-layout-id",
+      "layoutName": "Main Area",
+      "itemsCount": 5,
+      "tablesCount": 3,
+      "objectsCount": 2,
+      "deletedBy": "Amir Company Ehsani",
+      "deletedAt": "2025-09-03T11:00:00.000Z"
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **Validation**: Checks if company and layout exist
+2. **Usage Check**: Queries all events to see if layout is currently in use
+3. **Safety Prevention**: Prevents deletion if layout is used in any events
+4. **Deletion**: Removes layout document from Firestore
+5. **Activity Logging**: Creates detailed log entry with layout statistics
+6. **Statistics**: Returns counts of deleted items
+
+### Key Features
+
+✅ **Safety Validation** - Prevents deletion of layouts in use  
+✅ **Event Usage Check** - Queries all events for layout usage  
+✅ **Detailed Error Messages** - Shows which events are using the layout  
+✅ **Complete Deletion** - Removes layout and logs action  
+✅ **Audit Trail** - Comprehensive logging with layout details  
+✅ **Statistics** - Returns counts of deleted items  
+✅ **User Context** - Tracks who deleted the layout  
+
+### Error Responses
+
+**Layout not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Layout not found"
+  }
+}
+```
+
+**Company not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Company not found"
+  }
+}
+```
+
+**Layout in use (single event):**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Cannot delete layout. It is currently used in 1 event(s): VIP Night"
+  }
+}
+```
+
+**Layout in use (multiple events):**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Cannot delete layout. It is currently used in 3 event(s): VIP Night, Summer Party, New Year Event"
+  }
+}
+```
+
+**Validation error:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Validation error: \"layoutId\" is required"
+  }
+}
+```
+
+### Table Layout Deletion Workflow Examples
+
+### Scenario 1: Delete Unused Layout
+
+1. **Check layout usage** - Verify layout is not used in any events
+2. **Delete layout** safely with `deleteTableLayout`
+3. **Confirm deletion** - Layout removed and logged
+
+### Scenario 2: Attempt to Delete Used Layout
+
+1. **Try to delete layout** that's used in events
+2. **Receive error message** with event names
+3. **Remove from events first** - Update events to not use the layout
+4. **Then delete layout** safely
+
+### Scenario 3: Clean Up Old Layouts
+
+1. **Identify unused layouts** - Check which layouts are not in use
+2. **Delete multiple layouts** one by one
+3. **Monitor activity logs** for deletion tracking
+
+### Best Practices
+
+✅ **Check Usage First** - Verify layout is not used in events before deletion  
+✅ **Update Events First** - Remove layout from events before deleting  
+✅ **Backup Important Layouts** - Keep copies of layouts you might need later  
+✅ **Monitor Activity Logs** - Track all layout deletions  
+✅ **Test After Deletion** - Verify no broken references remain  
+✅ **Plan Deletions** - Consider impact on existing events  
+✅ **Use Descriptive Names** - Name layouts clearly to avoid confusion  
+
+### Safety Features
+
+The `deleteTableLayout` function includes several safety features to prevent accidental data loss:
+
+- **Event Usage Validation**: Automatically checks if the layout is used in any events
+- **Detailed Error Messages**: Shows exactly which events are using the layout
+- **Complete Audit Trail**: Logs all deletion actions with full context
+- **User Tracking**: Records who performed the deletion
+- **Statistics**: Returns counts of what was deleted
+
+### Database Impact
+
+When a layout is successfully deleted:
+
+- **Layout Document**: Removed from `companies/{companyId}/layouts/{layoutId}`
+- **Activity Log**: Entry created in `companies/{companyId}/activityLogs`
+- **No Event Impact**: Events are not automatically updated (must be done manually)
+
+### Error Prevention
+
+The function prevents deletion in these scenarios:
+
+- Layout is used in one or more events
+- Layout doesn't exist
+- Company doesn't exist
+- Invalid request data
+
+This ensures data integrity and prevents broken references in your application.

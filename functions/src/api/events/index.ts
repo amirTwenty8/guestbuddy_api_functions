@@ -302,41 +302,46 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
           const items = layoutData?.items || [];
           
           if (items.length > 0) {
-            // Add logs to each table
-            const tablesWithLogs = items.map((table: TableItem) => {
-              return {
-                ...table,
-                logs: [{
-                  action: 'created',
-                  userName: userName,
-                  timestamp: new Date().toISOString(),
-                  changes: {'status': 'Table created'},
-                }],
-              };
-            });
+            // Filter only table items (exclude objects)
+            const tableItems = items.filter((item: any) => item.type === 'ItemType.table');
             
-            // Create table_lists document for this layout (use layout ID as document ID)
-            const tableListsRef = eventRef
-              .collection('table_lists')
-              .doc(layout.id);
-            
-            transaction.set(tableListsRef, {
-              items: tablesWithLogs,
-              layoutName: layout.name, // Store the name for reference
-              lastUpdated: FieldValue.serverTimestamp(),
-            });
-            
-            // Accumulate totals
-            totalTables += items.length;
-            for (const table of items) {
-              totalGuests += parseInt(table.nrOfGuests || '0', 10) || 0;
-              totalCheckedIn += parseInt(table.tableCheckedIn || '0', 10) || 0;
-              totalTableLimit += parseInt(table.tableLimit || '0', 10) || 0;
-              totalTableSpent += parseInt(table.tableSpent || '0', 10) || 0;
+            if (tableItems.length > 0) {
+              // Add logs to each table
+              const tablesWithLogs = tableItems.map((table: TableItem) => {
+                return {
+                  ...table,
+                  logs: [{
+                    action: 'created',
+                    userName: userName,
+                    timestamp: new Date().toISOString(),
+                    changes: {'status': 'Table created'},
+                  }],
+                };
+              });
               
-              if ((table.name && table.name.trim().length > 0) || 
-                  (table.tableBookedBy && table.tableBookedBy.trim().length > 0)) {
-                totalBooked++;
+              // Create table_lists document for this layout (use layout ID as document ID)
+              const tableListsRef = eventRef
+                .collection('table_lists')
+                .doc(layout.id);
+              
+              transaction.set(tableListsRef, {
+                items: tablesWithLogs,
+                layoutName: layout.name, // Store the name for reference
+                lastUpdated: FieldValue.serverTimestamp(),
+              });
+              
+              // Accumulate totals only for table items
+              totalTables += tableItems.length;
+              for (const table of tableItems) {
+                totalGuests += parseInt(table.nrOfGuests || '0', 10) || 0;
+                totalCheckedIn += parseInt(table.tableCheckedIn || '0', 10) || 0;
+                totalTableLimit += parseInt(table.tableLimit || '0', 10) || 0;
+                totalTableSpent += parseInt(table.tableSpent || '0', 10) || 0;
+                
+                if ((table.name && table.name.trim().length > 0) || 
+                    (table.tableBookedBy && table.tableBookedBy.trim().length > 0)) {
+                  totalBooked++;
+                }
               }
             }
           }
@@ -679,9 +684,12 @@ export const updateEvent = onCall({enforceAppCheck: false}, async (request) => {
           const layoutData = layoutDoc.data();
           const items = (layoutData?.items as TableItem[]) || [];
           
-          totalTablesChange -= items.length;
+          // Filter only table items (exclude objects)
+          const tableItems = items.filter((item: any) => item.type === 'ItemType.table');
           
-          for (const table of items) {
+          totalTablesChange -= tableItems.length;
+          
+          for (const table of tableItems) {
             totalGuestsChange -= parseInt((table.nrOfGuests as string) || '0', 10) || 0;
             totalCheckedInChange -= parseInt((table.tableCheckedIn as string) || '0', 10) || 0;
             totalTableLimitChange -= parseInt((table.tableLimit as string) || '0', 10) || 0;
@@ -700,9 +708,12 @@ export const updateEvent = onCall({enforceAppCheck: false}, async (request) => {
         const layoutData = layoutsData[layoutId as keyof typeof layoutsData];
         const items = layoutData?.items || [];
         
-        totalTablesChange += items.length;
+        // Filter only table items (exclude objects)
+        const tableItems = items.filter((item: any) => item.type === 'ItemType.table');
         
-        for (const table of items) {
+        totalTablesChange += tableItems.length;
+        
+        for (const table of tableItems) {
           totalGuestsChange += parseInt((table.nrOfGuests as string) || '0', 10) || 0;
           totalCheckedInChange += parseInt((table.tableCheckedIn as string) || '0', 10) || 0;
           totalTableLimitChange += parseInt((table.tableLimit as string) || '0', 10) || 0;
@@ -748,9 +759,12 @@ export const updateEvent = onCall({enforceAppCheck: false}, async (request) => {
           const layoutData = layoutsData[layoutId as keyof typeof layoutsData];
           const items = layoutData?.items || [];
           
-          if (items.length > 0) {
+          // Filter only table items (exclude objects)
+          const tableItems = items.filter((item: any) => item.type === 'ItemType.table');
+          
+          if (tableItems.length > 0) {
             // Add logs to each table
-            const tablesWithLogs = items.map((table: TableItem) => {
+            const tablesWithLogs = tableItems.map((table: TableItem) => {
               return {
                 ...table,
                 logs: [{
