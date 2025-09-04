@@ -36,6 +36,7 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 30. **createLandingPage** - Create custom landing pages for events with password protection and styling
 31. **updateLandingPage** - Update existing landing pages with automatic slug regeneration and validation
 32. **deleteLandingPage** - Delete landing pages with proper cleanup
+33. **submitContactForm** - Submit support requests with attachments and email notifications
 
 ## Prerequisites
 
@@ -5471,3 +5472,327 @@ No request body is needed for deletion.
 - **Public Access**: Remember that public URLs become invalid after deletion
 - **Analytics Impact**: Views and conversions data is lost on deletion
 - **SEO Considerations**: Deleted landing pages may affect search rankings
+
+---
+
+## Testing the submitContactForm Function
+
+The `submitContactForm` function handles support requests from your contact form, stores them in Firestore, and sends email notifications to your support team.
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/submitContactForm`
+- **Method**: POST (Firebase Callable Function)
+- **Authentication**: REQUIRED (user must be logged in)
+- **Content-Type**: application/json
+
+### Request Body Structure
+
+```json
+{
+  "data": {
+    "name": "John Smith",
+    "email": "john.smith@company.com",
+    "companyName": "Tech Solutions Inc",
+    "companyId": "company_xyz789",
+    "subject": "technical",
+    "message": "I'm having trouble with the guest check-in process. When I try to check in a guest, the system shows an error message saying 'Invalid QR code' even though the code appears to be correct.",
+    "attachments": [
+      {
+        "name": "error-screenshot.png",
+        "type": "image/png",
+        "size": 1048576,
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+      }
+    ]
+  }
+}
+```
+
+### Field Descriptions
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | ✅ | Customer's full name (1-100 characters) |
+| `email` | string | ✅ | Valid email address |
+| `companyName` | string | ❌ | Company name (max 100 characters) |
+| `companyId` | string | ✅ | Company ID (required for authentication) |
+| `subject` | string | ✅ | Subject category (see valid values below) |
+| `message` | string | ✅ | Support message (10-2000 characters) |
+| `attachments` | array | ❌ | Array of image attachments (max 3) |
+
+### Valid Subject Values
+
+- `general` - General Question
+- `technical` - Technical Issue
+- `billing` - Billing & Subscription
+- `feature` - Feature Request
+- `bug` - Bug Report
+- `account` - Account Management
+- `integration` - Integration Support
+- `training` - Training & Onboarding
+- `other` - Other
+
+### Attachment Structure
+
+Each attachment object must contain:
+
+```json
+{
+  "name": "filename.png",
+  "type": "image/png",
+  "size": 1048576,
+  "data": "data:image/png;base64,BASE64_STRING_HERE"
+}
+```
+
+**Attachment Requirements:**
+- ✅ **Max 3 attachments** per request
+- ✅ **Image files only** (image/png, image/jpeg, image/gif, image/webp)
+- ✅ **Max 10MB per file**
+- ✅ **Base64 encoded** with data URL prefix
+
+### Test Examples
+
+#### Example 1: Basic Contact Form (No Attachments)
+
+```json
+{
+  "data": {
+    "name": "Sarah Johnson",
+    "email": "sarah@startup.com",
+    "companyName": "StartupCo",
+    "subject": "general",
+    "message": "How do I upgrade my subscription plan? I need access to more features for our growing team."
+  }
+}
+```
+
+#### Example 2: Technical Issue with Screenshot
+
+```json
+{
+  "data": {
+    "name": "Mike Chen",
+    "email": "mike.chen@restaurant.com",
+    "companyName": "Chen's Restaurant",
+    "subject": "technical",
+    "message": "The table layout is not displaying correctly on mobile devices. Tables appear overlapped and guests can't select their seats properly. This has been happening since yesterday.",
+    "attachments": [
+      {
+        "name": "mobile-bug.png",
+        "type": "image/png",
+        "size": 2097152,
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+      }
+    ]
+  }
+}
+```
+
+#### Example 3: Bug Report with Multiple Images
+
+```json
+{
+  "data": {
+    "name": "Alex Rodriguez",
+    "email": "alex@eventspace.com",
+    "companyName": "EventSpace Pro",
+    "subject": "bug",
+    "message": "QR code scanner is not working properly. It scans the code but doesn't check in the guest. I've attached screenshots showing the issue and what should happen.",
+    "attachments": [
+      {
+        "name": "qr-scan-error.png",
+        "type": "image/png",
+        "size": 1572864,
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+      },
+      {
+        "name": "expected-behavior.jpg",
+        "type": "image/jpeg",
+        "size": 786432,
+        "data": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwA/8A=="
+      },
+      {
+        "name": "console-log.png",
+        "type": "image/png",
+        "size": 524288,
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+      }
+    ]
+  }
+}
+```
+
+### Expected Responses
+
+#### Success Response
+
+```json
+{
+  "success": true,
+  "message": "Your support request has been submitted successfully. Our support team will review it and respond directly to your email.",
+  "ticketId": "1K2L3M4N5P6Q"
+}
+```
+
+#### Validation Error Response
+
+```json
+{
+  "success": false,
+  "message": "Failed to submit support request: Validation error: \"email\" must be a valid email"
+}
+```
+
+#### File Size Error Response
+
+```json
+{
+  "success": false,
+  "message": "Failed to submit support request: Validation error: \"attachments[0].size\" must be less than or equal to 10485760"
+}
+```
+
+### What Happens When You Submit
+
+1. **✅ Data Validation** - All fields are validated according to schema
+2. **🎫 Ticket Creation** - Unique ticket ID generated (e.g., `1K2L3M4N5P6Q`)
+3. **💾 Database Storage** - Full ticket data saved to `support` collection
+4. **📧 Email Notification** - Support team receives email at `hello@guestbuddy.net`
+5. **📊 Email Tracking** - Email delivery status tracked in database
+
+### Database Structure
+
+The ticket is stored in Firestore at: `support/{ticketId}`
+
+```json
+{
+  "name": "John Smith",
+  "email": "john.smith@company.com",
+  "companyName": "Tech Solutions Inc",
+  "subject": "technical",
+  "subjectLabel": "Technical Issue",
+  "message": "I'm having trouble with...",
+  "attachmentCount": 1,
+  "attachments": [
+    {
+      "name": "error-screenshot.png",
+      "type": "image/png",
+      "size": 1048576,
+      "sizeFormatted": "1.0 MB"
+    }
+  ],
+  "ticketId": "1K2L3M4N5P6Q",
+  "status": "new",
+  "priority": "normal",
+  "assignedTo": null,
+  "createdAt": "2024-01-01T10:30:00Z",
+  "updatedAt": "2024-01-01T10:30:00Z",
+  "supportEmailSent": true,
+  "confirmationEmailSent": false,
+  "source": "contact_form",
+  "customerResponse": null,
+  "internalNotes": [],
+  "tags": ["technical"]
+}
+```
+
+### Email Notification
+
+Support team receives email with subject: `Support - #1K2L3M4N5P6Q - Technical Issue`
+
+**Email includes:**
+- 🎫 Ticket ID and subject
+- 👤 Customer contact information
+- 💬 Full message content
+- 📎 All image attachments
+- ⏰ Submission timestamp
+- 🏷️ Professional HTML formatting
+
+### Testing Scenarios
+
+#### Scenario 1: Valid Submission (No Attachments)
+
+1. **Submit basic contact form** with required fields only
+2. **Verify success response** with ticket ID
+3. **Check Firestore** for created document
+4. **Confirm email sent** to hello@guestbuddy.net
+5. **Validate email content** and formatting
+
+#### Scenario 2: Full Submission with Attachments
+
+1. **Prepare test images** (convert to base64)
+2. **Submit with all fields** and 2-3 attachments
+3. **Verify attachments received** in email
+4. **Check database** for attachment metadata
+5. **Confirm file sizes** calculated correctly
+
+#### Scenario 3: Validation Testing
+
+1. **Test missing required fields** (name, email, subject, message)
+2. **Test invalid email format** (missing @, invalid domain)
+3. **Test message too short** (< 10 characters)
+4. **Test message too long** (> 2000 characters)
+5. **Test invalid subject** (not in allowed list)
+
+#### Scenario 4: Attachment Validation
+
+1. **Test too many attachments** (> 3 files)
+2. **Test file too large** (> 10MB)
+3. **Test invalid file type** (PDF, TXT, etc.)
+4. **Test invalid base64** format
+5. **Test missing attachment fields**
+
+#### Scenario 5: Email Delivery Testing
+
+1. **Submit valid request**
+2. **Check spam folder** for email delivery
+3. **Verify email formatting** in different clients
+4. **Test attachment downloads** from email
+5. **Confirm subject line format**
+
+### Common Issues & Solutions
+
+#### ❌ Email Not Received
+- Check spam/junk folder
+- Verify `hello@guestbuddy.net` is correct
+- Check Firebase Functions logs
+- Verify SMTP configuration
+
+#### ❌ Attachment Too Large
+- Resize images before converting to base64
+- Use image compression tools
+- Check file size before encoding
+- Consider multiple smaller files
+
+#### ❌ Base64 Conversion Issues
+- Use proper data URL format: `data:image/png;base64,`
+- Ensure no line breaks in base64 string
+- Verify image file is valid before encoding
+- Test with small image first
+
+#### ❌ Validation Errors
+- Check all required fields are present
+- Verify email format is valid
+- Ensure subject is from allowed list
+- Check message length requirements
+
+### Best Practices
+
+✅ **Test with Real Data** - Use actual customer scenarios  
+✅ **Verify Email Delivery** - Always check email was received  
+✅ **Test All Subjects** - Try each subject category  
+✅ **Check Mobile Images** - Test with mobile screenshots  
+✅ **Monitor Database** - Verify tickets are stored correctly  
+✅ **Test Error Cases** - Ensure proper error handling  
+✅ **Performance Testing** - Test with maximum attachments
+
+### Production Considerations
+
+- **Rate Limiting**: Consider implementing rate limits to prevent spam
+- **File Storage**: Large attachments increase email size
+- **Email Deliverability**: Monitor bounce rates and spam scores
+- **Database Cleanup**: Plan for ticket archival strategy
+- **Response Workflow**: Set up support team processes
+- **Analytics**: Track ticket volume and response times

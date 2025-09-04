@@ -20,6 +20,7 @@ import * as notificationsApi from "./api/notifications";
 import * as landingPagesApi from "./api/landing-pages";
 import * as cardsApi from "./api/cards";
 import * as layoutsApi from "./api/layouts";
+import * as supportApi from "./api/support";
 
 // Export all functions
 export const users = usersApi.users;
@@ -80,3 +81,6 @@ export const sendSmsNotification = notificationsApi.sendSmsNotification;
 
 // Landing Pages API
 export const landingPages = landingPagesApi.landingPages;
+
+// Support API
+export const submitContactForm = supportApi.submitContactForm;
