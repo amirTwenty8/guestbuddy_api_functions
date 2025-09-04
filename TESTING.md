@@ -33,6 +33,9 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 27. **createTableLayout** - Create table layouts from canvas objects with rotation support
 28. **updateTableLayout** - Update existing table layouts with partial field updates and rotation support
 29. **deleteTableLayout** - Delete table layouts with safety validation to prevent deletion of layouts in use
+30. **createLandingPage** - Create custom landing pages for events with password protection and styling
+31. **updateLandingPage** - Update existing landing pages with automatic slug regeneration and validation
+32. **deleteLandingPage** - Delete landing pages with proper cleanup
 
 ## Prerequisites
 
@@ -4736,3 +4739,735 @@ All chat endpoints use the following base URL:
   "companyName": "Restaurant XYZ"
 }
 ```
+
+## Testing the createLandingPage Function
+
+### Request Details
+
+- **URL**: `https://landingpages-kb7sximd6a-uc.a.run.app/`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+  - x-company-id: YOUR_COMPANY_ID
+
+### Request Body Examples
+
+#### Basic Landing Page
+
+```json
+{
+  "title": "Summer Music Festival 2024",
+  "description": "Join us for an unforgettable night of music, food, and entertainment under the stars."
+}
+```
+
+#### Landing Page with Event Association
+
+```json
+{
+  "title": "VIP Table Booking - New Year's Eve",
+  "description": "Reserve your VIP table for the most exclusive New Year's Eve celebration in the city.",
+  "eventId": "event-123",
+  "showTickets": true,
+  "enableGuestRegistration": true
+}
+```
+
+#### Password Protected Landing Page
+
+```json
+{
+  "title": "Private Corporate Event",
+  "description": "Exclusive corporate networking event for invited guests only.",
+  "isPasswordProtected": true,
+  "password": "corporate2024",
+  "guestCategoryId": "category-456"
+}
+```
+
+#### Fully Customized Landing Page
+
+```json
+{
+  "title": "Elegant Wedding Reception",
+  "description": "Celebrate with us as we begin our journey together. RSVP required.",
+  "eventId": "wedding-event-789",
+  "guestCategoryId": "wedding-guests",
+  "showTickets": false,
+  "enableGuestRegistration": true,
+  "isPasswordProtected": true,
+  "password": "wedding2024",
+  "backgroundImageUrl": "https://example.com/wedding-background.jpg",
+  "customStyles": {
+    "primaryColor": "#d4af37",
+    "textColor": "#ffffff",
+    "backgroundColor": "#2c1810"
+  }
+}
+```
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "landing-page-abc123",
+    "title": "Summer Music Festival 2024",
+    "description": "Join us for an unforgettable night of music, food, and entertainment under the stars.",
+    "slug": "company-slug/summer-music-festival-2024",
+    "eventId": null,
+    "guestCategoryId": null,
+    "showTickets": false,
+    "enableGuestRegistration": false,
+    "isPasswordProtected": false,
+    "password": null,
+    "backgroundImageUrl": null,
+    "customStyles": {
+      "primaryColor": "#3b82f6",
+      "textColor": "#ffffff",
+      "backgroundColor": "#111827"
+    },
+    "createdBy": "user-id",
+    "createdAt": "2024-01-15T10:00:00.000Z",
+    "updatedAt": "2024-01-15T10:00:00.000Z",
+    "isActive": true,
+    "views": 0,
+    "conversions": 0,
+    "url": "https://your-domain.com/landing/company-slug/summer-music-festival-2024"
+  },
+  "message": "Landing page created successfully"
+}
+```
+
+### Error Responses
+
+#### Missing Company ID
+```json
+{
+  "success": false,
+  "error": "Company ID is required"
+}
+```
+
+#### Event Not Found
+```json
+{
+  "success": false,
+  "error": "Event not found"
+}
+```
+
+#### Guest Category Not Found
+```json
+{
+  "success": false,
+  "error": "Guest category not found"
+}
+```
+
+#### Validation Error
+```json
+{
+  "success": false,
+  "error": "Validation failed",
+  "details": [
+    {
+      "field": "title",
+      "message": "Title is required and must be between 1 and 200 characters"
+    }
+  ]
+}
+```
+
+### Testing Scenarios
+
+#### Scenario 1: Basic Landing Page Creation
+
+1. **Prepare basic data** with title and description
+2. **Create landing page** using POST endpoint
+3. **Verify automatic slug generation** from title
+4. **Check default values** are applied correctly
+5. **Test public URL** accessibility
+
+#### Scenario 2: Event-Associated Landing Page
+
+1. **Create or identify target event** first
+2. **Create landing page** with eventId reference
+3. **Verify event validation** works correctly
+4. **Test showTickets and enableGuestRegistration** flags
+5. **Check event data** is properly linked
+
+#### Scenario 3: Password Protection Setup
+
+1. **Create password-protected landing page**
+2. **Test password requirement** on public access
+3. **Verify password validation** on public endpoint
+4. **Check security** - password not exposed in responses
+
+#### Scenario 4: Custom Styling
+
+1. **Create landing page** with custom styles
+2. **Verify style application** on public page
+3. **Test default style fallbacks** for missing values
+4. **Check color format validation** (hex codes)
+
+#### Scenario 5: Slug Uniqueness
+
+1. **Create landing page** with specific title
+2. **Create another page** with same title
+3. **Verify automatic slug differentiation** (adds counter)
+4. **Check both pages** have unique, working URLs
+
+### Best Practices
+
+✅ **Validate References** - Ensure eventId and categoryId exist before creation  
+✅ **Test Slug Generation** - Verify URLs are SEO-friendly and unique  
+✅ **Secure Passwords** - Use strong passwords for protected pages  
+✅ **Custom Styling** - Test color codes and visual appearance  
+✅ **Public Access** - Always test the generated public URL
+
+## Testing the getLandingPages Function
+
+### Request Details
+
+- **URL**: `https://landingpages-kb7sximd6a-uc.a.run.app/`
+- **Method**: GET
+- **Headers**: 
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+  - x-company-id: YOUR_COMPANY_ID
+
+### Query Parameters
+
+#### Get All Landing Pages
+
+```
+GET https://landingpages-kb7sximd6a-uc.a.run.app/
+```
+
+#### Filter by Status
+
+```
+GET https://landingpages-kb7sximd6a-uc.a.run.app/?status=active
+GET https://landingpages-kb7sximd6a-uc.a.run.app/?status=inactive
+```
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "landing-page-1",
+      "title": "Summer Music Festival 2024",
+      "description": "Join us for an unforgettable night of music and entertainment",
+      "slug": "company-slug/summer-music-festival-2024",
+      "eventId": "event-123",
+      "guestCategoryId": null,
+      "showTickets": true,
+      "enableGuestRegistration": true,
+      "isPasswordProtected": false,
+      "backgroundImageUrl": "https://example.com/background.jpg",
+      "customStyles": {
+        "primaryColor": "#3b82f6",
+        "textColor": "#ffffff",
+        "backgroundColor": "#111827"
+      },
+      "createdBy": "user-id",
+      "createdAt": "2024-01-15T10:00:00.000Z",
+      "updatedAt": "2024-01-15T11:30:00.000Z",
+      "isActive": true,
+      "views": 150,
+      "conversions": 12,
+      "url": "https://your-domain.com/landing/company-slug/summer-music-festival-2024"
+    },
+    {
+      "id": "landing-page-2",
+      "title": "Private Corporate Event",
+      "description": "Exclusive networking event",
+      "slug": "company-slug/private-corporate-event",
+      "eventId": null,
+      "guestCategoryId": "corporate-guests",
+      "showTickets": false,
+      "enableGuestRegistration": true,
+      "isPasswordProtected": true,
+      "backgroundImageUrl": null,
+      "customStyles": {
+        "primaryColor": "#059669",
+        "textColor": "#ffffff",
+        "backgroundColor": "#1f2937"
+      },
+      "createdBy": "user-id",
+      "createdAt": "2024-01-14T14:00:00.000Z",
+      "updatedAt": "2024-01-14T14:00:00.000Z",
+      "isActive": true,
+      "views": 45,
+      "conversions": 8,
+      "url": "https://your-domain.com/landing/company-slug/private-corporate-event"
+    }
+  ]
+}
+```
+
+## Testing the getLandingPage Function (Single)
+
+### Request Details
+
+- **URL**: `https://landingpages-kb7sximd6a-uc.a.run.app/:id`
+- **Method**: GET
+- **Headers**: 
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+  - x-company-id: YOUR_COMPANY_ID
+
+### Request Examples
+
+#### Get Specific Landing Page
+
+```
+GET https://landingpages-kb7sximd6a-uc.a.run.app/landing-page-abc123
+```
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "landing-page-abc123",
+    "title": "Summer Music Festival 2024",
+    "description": "Join us for an unforgettable night of music and entertainment",
+    "slug": "company-slug/summer-music-festival-2024",
+    "eventId": "event-123",
+    "guestCategoryId": null,
+    "showTickets": true,
+    "enableGuestRegistration": true,
+    "isPasswordProtected": false,
+    "backgroundImageUrl": "https://example.com/background.jpg",
+    "customStyles": {
+      "primaryColor": "#3b82f6",
+      "textColor": "#ffffff",
+      "backgroundColor": "#111827"
+    },
+    "createdBy": "user-id",
+    "createdAt": "2024-01-15T10:00:00.000Z",
+    "updatedAt": "2024-01-15T11:30:00.000Z",
+    "isActive": true,
+    "views": 150,
+    "conversions": 12,
+    "url": "https://your-domain.com/landing/company-slug/summer-music-festival-2024"
+  }
+}
+```
+
+### Error Responses
+
+#### Landing Page Not Found
+```json
+{
+  "success": false,
+  "error": "Landing page not found"
+}
+```
+
+## Testing the getPublicLandingPage Function
+
+### Request Details
+
+- **URL**: `https://landingpages-kb7sximd6a-uc.a.run.app/public/:slug`
+- **Method**: GET
+- **Headers**: None required (public endpoint)
+
+### Request Examples
+
+#### Access Public Landing Page
+
+```
+GET https://landingpages-kb7sximd6a-uc.a.run.app/public/company-slug/summer-music-festival-2024
+```
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "landing-page-abc123",
+    "title": "Summer Music Festival 2024",
+    "description": "Join us for an unforgettable night of music and entertainment",
+    "slug": "company-slug/summer-music-festival-2024",
+    "eventId": "event-123",
+    "showTickets": true,
+    "enableGuestRegistration": true,
+    "isPasswordProtected": false,
+    "backgroundImageUrl": "https://example.com/background.jpg",
+    "customStyles": {
+      "primaryColor": "#3b82f6",
+      "textColor": "#ffffff",
+      "backgroundColor": "#111827"
+    },
+    "companyId": "company-id",
+    "views": 151
+  }
+}
+```
+
+**Note**: Password field is never returned in public endpoints for security.
+
+### Testing Scenarios
+
+#### Scenario 1: Public Access
+
+1. **Create public landing page** (not password protected)
+2. **Access via public endpoint** using slug
+3. **Verify view count increment** on each access
+4. **Check sensitive data exclusion** (no password field)
+
+#### Scenario 2: Password Protected Access
+
+1. **Create password-protected landing page**
+2. **Access public endpoint** and note isPasswordProtected: true
+3. **Implement password verification** in your frontend
+4. **Test with correct/incorrect passwords**
+
+### Best Practices
+
+✅ **No Authentication** - Public endpoints don't require auth tokens  
+✅ **View Tracking** - Each access increments the view counter  
+✅ **Security** - Sensitive data (passwords) never exposed  
+✅ **SEO Friendly** - Use clean, descriptive slugs
+
+## Testing the updateLandingPage Function
+
+### Request Details
+
+- **URL**: `https://landingpages-kb7sximd6a-uc.a.run.app/:id`
+- **Method**: PUT
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+  - x-company-id: YOUR_COMPANY_ID
+
+### Request Body Examples
+
+#### Update Title (Automatically Regenerates Slug)
+
+```json
+{
+  "data": {
+    "title": "Updated Event Landing Page"
+  }
+}
+```
+
+#### Update Multiple Fields
+
+```json
+{
+  "data": {
+    "title": "Summer Music Festival 2024",
+    "description": "Join us for an unforgettable night of music and entertainment",
+    "showTickets": true,
+    "enableGuestRegistration": true,
+    "backgroundImageUrl": "https://example.com/new-background.jpg",
+    "customStyles": {
+      "primaryColor": "#ff6b6b",
+      "textColor": "#ffffff",
+      "backgroundColor": "#2d3748"
+    }
+  }
+}
+```
+
+#### Enable Password Protection
+
+```json
+{
+  "data": {
+    "isPasswordProtected": true,
+    "password": "secret123"
+  }
+}
+```
+
+#### Disable Password Protection
+
+```json
+{
+  "data": {
+    "isPasswordProtected": false
+  }
+}
+```
+
+#### Update Event Association
+
+```json
+{
+  "data": {
+    "eventId": "event-123",
+    "guestCategoryId": "category-456"
+  }
+}
+```
+
+#### Update Custom Styles Only
+
+```json
+{
+  "data": {
+    "customStyles": {
+      "primaryColor": "#4ade80",
+      "backgroundColor": "#1f2937"
+    }
+  }
+}
+```
+
+#### Deactivate Landing Page
+
+```json
+{
+  "data": {
+    "isActive": false
+  }
+}
+```
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "landing-page-id",
+    "title": "Updated Event Landing Page",
+    "description": "Join us for an unforgettable night of music and entertainment",
+    "slug": "company-slug/updated-event-landing-page",
+    "eventId": "event-123",
+    "guestCategoryId": "category-456",
+    "showTickets": true,
+    "enableGuestRegistration": true,
+    "isPasswordProtected": true,
+    "backgroundImageUrl": "https://example.com/new-background.jpg",
+    "customStyles": {
+      "primaryColor": "#ff6b6b",
+      "textColor": "#ffffff",
+      "backgroundColor": "#2d3748"
+    },
+    "createdBy": "user-id",
+    "createdAt": "2024-01-15T10:00:00.000Z",
+    "updatedAt": "2024-01-15T11:30:00.000Z",
+    "isActive": true,
+    "views": 150,
+    "conversions": 12,
+    "url": "https://your-domain.com/landing/company-slug/updated-event-landing-page"
+  },
+  "message": "Landing page updated successfully"
+}
+```
+
+### Error Responses
+
+#### Landing Page Not Found
+```json
+{
+  "success": false,
+  "error": "Landing page not found"
+}
+```
+
+#### Invalid Event Reference
+```json
+{
+  "success": false,
+  "error": "Event not found"
+}
+```
+
+#### Invalid Category Reference
+```json
+{
+  "success": false,
+  "error": "Guest category not found"
+}
+```
+
+#### Missing Company ID
+```json
+{
+  "success": false,
+  "error": "Company ID is required"
+}
+```
+
+#### Validation Error
+```json
+{
+  "success": false,
+  "error": "Validation failed",
+  "details": [
+    {
+      "field": "title",
+      "message": "Title must be between 1 and 200 characters"
+    }
+  ]
+}
+```
+
+### Testing Scenarios
+
+#### Scenario 1: Update Title and Description
+
+1. **Get existing landing page** using GET endpoint
+2. **Update title and description** with meaningful content
+3. **Verify slug regeneration** in response
+4. **Check public URL** works with new slug
+
+#### Scenario 2: Change Event Association
+
+1. **Create or identify target event** for association
+2. **Update landing page** with new eventId
+3. **Verify event validation** works correctly
+4. **Test with invalid eventId** to ensure error handling
+
+#### Scenario 3: Update Styling
+
+1. **Update custom styles** with new colors
+2. **Verify style merging** preserves existing styles
+3. **Test partial style updates** (only primaryColor)
+4. **Check visual changes** on public landing page
+
+#### Scenario 4: Password Protection Management
+
+1. **Enable password protection** with secure password
+2. **Test password requirement** on public endpoint
+3. **Update password** while keeping protection enabled
+4. **Disable password protection** and verify removal
+
+#### Scenario 5: Bulk Field Updates
+
+1. **Prepare comprehensive update** with multiple fields
+2. **Submit single request** with all changes
+3. **Verify atomic update** (all changes applied)
+4. **Check updated timestamp** reflects changes
+
+### Best Practices
+
+✅ **Validate References** - Always verify eventId and categoryId exist  
+✅ **Test Slug Changes** - Confirm new slugs work in public URLs  
+✅ **Secure Passwords** - Use strong passwords for protection  
+✅ **Partial Updates** - Only send fields that need changing  
+✅ **Error Handling** - Test invalid data and missing references
+
+## Testing the deleteLandingPage Function
+
+### Request Details
+
+- **URL**: `https://landingpages-kb7sximd6a-uc.a.run.app/:id`
+- **Method**: DELETE
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+  - x-company-id: YOUR_COMPANY_ID
+
+### Request Examples
+
+#### Delete Landing Page by ID
+
+```
+DELETE /landingPages/landing-page-123
+```
+
+No request body is needed for deletion.
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "message": "Landing page deleted successfully"
+}
+```
+
+### Error Responses
+
+#### Landing Page Not Found
+```json
+{
+  "success": false,
+  "error": "Landing page not found"
+}
+```
+
+#### Missing Company ID
+```json
+{
+  "success": false,
+  "error": "Company ID is required"
+}
+```
+
+#### Unauthorized Access
+```json
+{
+  "success": false,
+  "error": "Unauthorized"
+}
+```
+
+### Testing Scenarios
+
+#### Scenario 1: Successful Deletion
+
+1. **Create a test landing page** using POST endpoint
+2. **Note the landing page ID** from creation response
+3. **Delete the landing page** using DELETE endpoint
+4. **Verify deletion** by attempting to GET the same ID (should return 404)
+5. **Check public URL** no longer accessible
+
+#### Scenario 2: Delete Non-Existent Landing Page
+
+1. **Use invalid or non-existent ID** in DELETE request
+2. **Verify 404 error response** with appropriate message
+3. **Confirm no side effects** on other landing pages
+
+#### Scenario 3: Company Isolation
+
+1. **Create landing page** in Company A
+2. **Attempt deletion** using Company B's header
+3. **Verify access denied** (landing page not found for Company B)
+4. **Confirm landing page** still exists for Company A
+
+#### Scenario 4: Cleanup Verification
+
+1. **Delete landing page** successfully
+2. **Check that slug is freed** for reuse
+3. **Verify no orphaned data** remains
+4. **Test creating new landing page** with same title
+
+### Best Practices
+
+✅ **Confirm Before Deletion** - Always verify the landing page exists and belongs to your company  
+✅ **Test Access Control** - Ensure users can only delete their company's landing pages  
+✅ **Document Impact** - Note which public URLs will become unavailable  
+✅ **Backup Strategy** - Consider archiving important landing pages before deletion  
+✅ **Monitor Usage** - Check analytics before deleting popular landing pages
+
+### Complete Landing Page Workflow
+
+#### Full CRUD Testing Sequence
+
+1. **CREATE**: Use POST `/landingPages` to create a new landing page
+2. **READ**: Use GET `/landingPages/:id` to retrieve the landing page
+3. **UPDATE**: Use PUT `/landingPages/:id` to modify the landing page
+4. **DELETE**: Use DELETE `/landingPages/:id` to remove the landing page
+
+#### Production Considerations
+
+- **Slug Management**: Understand that title changes regenerate slugs
+- **Reference Validation**: Event and category IDs are validated on updates
+- **Public Access**: Remember that public URLs become invalid after deletion
+- **Analytics Impact**: Views and conversions data is lost on deletion
+- **SEO Considerations**: Deleted landing pages may affect search rankings
