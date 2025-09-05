@@ -4,7 +4,7 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 
 ## Available Functions
 
-1. **createEvent** - Create a new event with table layouts, categories, club cards, and genres
+1. **createEvent** - Create a new event with table layouts, categories, club cards, and genres (supports single and recurring events)
 2. **updateEvent** - Update an existing event with table layout changes
 3. **deleteEvent** - Delete an event and all its subcollections
 4. **addGuest** - Add a guest to an event's guest list with summary updates
@@ -95,6 +95,7 @@ The response will contain an `idToken` field with your authentication token.
 
 ### Request Body
 
+#### Single Event (Standard)
 ```json
 {
   "data": {
@@ -106,10 +107,41 @@ The response will contain an `idToken` field with your authentication token.
     "tableLayouts": ["layout_document_id_1", "layout_document_id_2"],
     "categories": ["category_document_id_1", "category_document_id_2"],
     "clubCardIds": ["clubcard_document_id_1", "clubcard_document_id_2"],
-    "eventGenre": ["genre_document_id_1", "genre_document_id_2"]
+    "eventGenre": ["genre_document_id_1", "genre_document_id_2"],
+    "additionalGuestLists": ["VIP List", "Staff List"]
   }
 }
 ```
+
+#### Recurring Event (New Feature)
+```json
+{
+  "data": {
+    "eventName": "Weekly Club Night",
+    "startDateTime": "2024-01-01T20:00:00Z",
+    "endDateTime": "2024-01-01T02:00:00Z",
+    "companyId": "YOUR_COMPANY_ID",
+    "tableLayouts": ["layout_document_id_1"],
+    "categories": ["category_document_id_1"],
+    "clubCardIds": ["clubcard_document_id_1"],
+    "eventGenre": ["genre_document_id_1"],
+    "additionalGuestLists": ["VIP List"],
+    "recurring": {
+      "isRecurring": true,
+      "recurringStartDate": "2024-01-01T00:00:00Z",
+      "recurringEndDate": "2024-12-31T23:59:59Z",
+      "daysOfWeek": [5, 6]
+    }
+  }
+}
+```
+
+> **Recurring Event Notes**:
+> - `daysOfWeek`: Array of numbers where 0=Sunday, 1=Monday, 2=Tuesday, 3=Wednesday, 4=Thursday, 5=Friday, 6=Saturday
+> - `recurringStartDate` and `recurringEndDate`: Define the period for recurring events
+> - `startDateTime` and `endDateTime`: Define the time for each individual event occurrence
+> - Each recurring event gets a unique ID and includes the date in the event name
+> - All table layouts, guest lists, and summaries are created for each individual event
 
 > **Important**: 
 > - Replace `YOUR_COMPANY_ID` with a valid company ID from your Firestore database
@@ -118,13 +150,22 @@ The response will contain an `idToken` field with your authentication token.
 
 ### Expected Response
 
+#### Single Event Response
 ```json
 {
   "result": {
     "success": true,
     "message": "Event created successfully",
     "data": {
-      "eventId": "test-event-123",
+      "eventsCreated": 1,
+      "events": [
+        {
+          "eventId": "test-event-123",
+          "eventName": "Test Event",
+          "startDateTime": "2023-08-01T18:00:00Z",
+          "endDateTime": "2023-08-01T23:00:00Z"
+        }
+      ],
       "tableLayouts": [
         {"id": "layout_document_id_1", "name": "Layout Name 1"},
         {"id": "layout_document_id_2", "name": "Layout Name 2"}
@@ -140,11 +181,187 @@ The response will contain an `idToken` field with your authentication token.
       "eventGenre": [
         {"id": "genre_document_id_1", "name": "Party"},
         {"id": "genre_document_id_2", "name": "Concert"}
-      ]
+      ],
+      "additionalGuestLists": ["VIP List", "Staff List"],
+      "recurring": null
     }
   }
 }
 ```
+
+#### Recurring Event Response
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Successfully created 104 recurring events",
+    "data": {
+      "eventsCreated": 104,
+      "events": [
+        {
+          "eventId": "uuid-1",
+          "eventName": "Weekly Club Night (1/5/2024)",
+          "startDateTime": "2024-01-05T20:00:00Z",
+          "endDateTime": "2024-01-06T02:00:00Z"
+        },
+        {
+          "eventId": "uuid-2",
+          "eventName": "Weekly Club Night (1/6/2024)",
+          "startDateTime": "2024-01-06T20:00:00Z",
+          "endDateTime": "2024-01-07T02:00:00Z"
+        }
+      ],
+      "tableLayouts": [
+        {"id": "layout_document_id_1", "name": "Layout Name 1"}
+      ],
+      "categories": [
+        {"id": "category_document_id_1", "name": "VIP"}
+      ],
+      "clubCardIds": [
+        {"id": "clubcard_document_id_1", "name": "Gold Card"}
+      ],
+      "eventGenre": [
+        {"id": "genre_document_id_1", "name": "Party"}
+      ],
+      "additionalGuestLists": ["VIP List"],
+      "recurring": {
+        "isRecurring": true,
+        "recurringStartDate": "2024-01-01T00:00:00Z",
+        "recurringEndDate": "2024-12-31T23:59:59Z",
+        "daysOfWeek": [5, 6]
+      }
+    }
+  }
+}
+```
+
+### Testing Scenarios for Recurring Events
+
+#### Scenario 1: Weekly Friday and Saturday Events
+```json
+{
+  "data": {
+    "eventName": "Weekend Club Nights",
+    "startDateTime": "2024-01-01T21:00:00Z",
+    "endDateTime": "2024-01-02T03:00:00Z",
+    "companyId": "YOUR_COMPANY_ID",
+    "recurring": {
+      "isRecurring": true,
+      "recurringStartDate": "2024-01-01T00:00:00Z",
+      "recurringEndDate": "2024-03-31T23:59:59Z",
+      "daysOfWeek": [5, 6]
+    }
+  }
+}
+```
+**Expected**: Creates ~26 events (13 weeks × 2 days)
+
+#### Scenario 2: Daily Morning Events
+```json
+{
+  "data": {
+    "eventName": "Morning Yoga",
+    "startDateTime": "2024-01-01T08:00:00Z",
+    "endDateTime": "2024-01-01T09:00:00Z",
+    "companyId": "YOUR_COMPANY_ID",
+    "recurring": {
+      "isRecurring": true,
+      "recurringStartDate": "2024-01-01T00:00:00Z",
+      "recurringEndDate": "2024-01-31T23:59:59Z",
+      "daysOfWeek": [1, 2, 3, 4, 5]
+    }
+  }
+}
+```
+**Expected**: Creates ~23 events (weekdays in January)
+
+#### Scenario 3: Single Day Events (No Recurring)
+```json
+{
+  "data": {
+    "eventName": "New Year Party",
+    "startDateTime": "2024-12-31T20:00:00Z",
+    "endDateTime": "2025-01-01T02:00:00Z",
+    "companyId": "YOUR_COMPANY_ID"
+  }
+}
+```
+**Expected**: Creates 1 event (no recurring object)
+
+#### Scenario 4: Monthly Events (First Monday of Each Month)
+```json
+{
+  "data": {
+    "eventName": "Monthly Team Meeting",
+    "startDateTime": "2024-01-01T14:00:00Z",
+    "endDateTime": "2024-01-01T15:00:00Z",
+    "companyId": "YOUR_COMPANY_ID",
+    "recurring": {
+      "isRecurring": true,
+      "recurringStartDate": "2024-01-01T00:00:00Z",
+      "recurringEndDate": "2024-12-31T23:59:59Z",
+      "daysOfWeek": [1]
+    }
+  }
+}
+```
+**Expected**: Creates ~52 events (Mondays throughout the year)
+
+### Validation Testing
+
+#### Test 1: Invalid Days of Week
+```json
+{
+  "data": {
+    "eventName": "Test Event",
+    "startDateTime": "2024-01-01T20:00:00Z",
+    "endDateTime": "2024-01-01T23:00:00Z",
+    "companyId": "YOUR_COMPANY_ID",
+    "recurring": {
+      "isRecurring": true,
+      "recurringStartDate": "2024-01-01T00:00:00Z",
+      "recurringEndDate": "2024-01-31T23:59:59Z",
+      "daysOfWeek": [7, 8]
+    }
+  }
+}
+```
+**Expected**: Validation error (days must be 0-6)
+
+#### Test 2: Missing Required Recurring Fields
+```json
+{
+  "data": {
+    "eventName": "Test Event",
+    "startDateTime": "2024-01-01T20:00:00Z",
+    "endDateTime": "2024-01-01T23:00:00Z",
+    "companyId": "YOUR_COMPANY_ID",
+    "recurring": {
+      "isRecurring": true
+    }
+  }
+}
+```
+**Expected**: Validation error (missing required fields)
+
+#### Test 3: End Date Before Start Date
+```json
+{
+  "data": {
+    "eventName": "Test Event",
+    "startDateTime": "2024-01-01T20:00:00Z",
+    "endDateTime": "2024-01-01T23:00:00Z",
+    "companyId": "YOUR_COMPANY_ID",
+    "recurring": {
+      "isRecurring": true,
+      "recurringStartDate": "2024-12-31T00:00:00Z",
+      "recurringEndDate": "2024-01-01T23:59:59Z",
+      "daysOfWeek": [5]
+    }
+  }
+}
+```
+**Expected**: Creates 0 events (no matching dates)
 
 ## Testing the updateEvent Function
 

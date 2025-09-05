@@ -1,5 +1,5 @@
 import {onCall} from "firebase-functions/v2/https";
-import {getFirestore, FieldValue} from "firebase-admin/firestore";
+import {getFirestore, FieldValue, Timestamp} from "firebase-admin/firestore";
 import * as Joi from "joi";
 import {v4 as uuidv4} from "uuid";
 
@@ -18,6 +18,12 @@ const createEventSchema = Joi.object({
   clubCardIds: Joi.array().items(Joi.string()).optional().default([]), // Already expects IDs
   eventGenre: Joi.array().items(Joi.string()).optional().default([]), // Now expects genre IDs
   additionalGuestLists: Joi.array().items(Joi.string().min(1).max(100)).optional().default([]), // Names for additional guest lists
+  recurring: Joi.object({
+    isRecurring: Joi.boolean().required(),
+    recurringStartDate: Joi.date().iso().when('isRecurring', { is: true, then: Joi.required() }),
+    recurringEndDate: Joi.date().iso().when('isRecurring', { is: true, then: Joi.required() }),
+    daysOfWeek: Joi.array().items(Joi.number().integer().min(0).max(6)).when('isRecurring', { is: true, then: Joi.required() }), // 0 = Sunday, 1 = Monday, etc.
+  }).optional(),
 });
 
 // Type definitions
@@ -40,6 +46,59 @@ interface LayoutData {
 interface FetchedData {
   id: string;
   name: string;
+}
+
+// Helper function to generate recurring event dates
+function generateRecurringEventDates(
+  startDate: Date,
+  endDate: Date,
+  recurringStartDate: Date,
+  recurringEndDate: Date,
+  daysOfWeek: number[]
+): Array<{ startDateTime: Timestamp; endDateTime: Timestamp }> {
+  const events: Array<{ startDateTime: Timestamp; endDateTime: Timestamp }> = [];
+  
+  // Extract the original time components (UTC)
+  const originalStartHours = startDate.getUTCHours();
+  const originalStartMinutes = startDate.getUTCMinutes();
+  const originalStartSeconds = startDate.getUTCSeconds();
+  const originalStartMilliseconds = startDate.getUTCMilliseconds();
+  
+  // Calculate the time difference between start and end times
+  const timeDifference = endDate.getTime() - startDate.getTime();
+  
+  // Start from the recurring start date (UTC)
+  let currentDate = new Date(recurringStartDate);
+  
+  // Continue until we reach the recurring end date
+  while (currentDate <= recurringEndDate) {
+    // Check if current date matches one of the specified days of the week
+    if (daysOfWeek.includes(currentDate.getUTCDay())) {
+      // Create the event start time by combining the current date with the original time
+      const eventStartDateTime = new Date(Date.UTC(
+        currentDate.getUTCFullYear(),
+        currentDate.getUTCMonth(),
+        currentDate.getUTCDate(),
+        originalStartHours,
+        originalStartMinutes,
+        originalStartSeconds,
+        originalStartMilliseconds
+      ));
+      
+      // Create the event end time by adding the time difference
+      const eventEndDateTime = new Date(eventStartDateTime.getTime() + timeDifference);
+      
+      events.push({
+        startDateTime: Timestamp.fromMillis(eventStartDateTime.getTime()),
+        endDateTime: Timestamp.fromMillis(eventEndDateTime.getTime()),
+      });
+    }
+    
+    // Move to the next day (UTC)
+    currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
+  }
+  
+  return events;
 }
 
 /**
@@ -89,6 +148,7 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
       clubCardIds,
       eventGenre,
       additionalGuestLists,
+      recurring,
     } = requestData;
 
     // Validate input data
@@ -100,8 +160,7 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
       };
     }
 
-    // Generate a unique event ID if not provided
-    const eventId = providedEventId || uuidv4();
+    // Note: Event IDs are now generated per event in the eventsToCreate array
 
     // Check if company exists
     const companyRef = db.collection('companies').doc(companyId);
@@ -114,9 +173,65 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
       };
     }
 
-    // Convert dates to proper format
+    // Convert dates to proper format and adjust for UTC+2 timezone
+    // If user sends 22:00 UTC, they likely mean 22:00 in their local timezone (UTC+2)
+    // So we need to subtract 2 hours to get the correct UTC time
     const startDate = new Date(startDateTime);
     const endDate = new Date(endDateTime);
+    
+    // Adjust for UTC+2 timezone (subtract 2 hours from the input)
+    startDate.setUTCHours(startDate.getUTCHours() - 2);
+    endDate.setUTCHours(endDate.getUTCHours() - 2);
+    
+    // Generate recurring events if specified
+    let eventsToCreate: Array<{ 
+      eventId: string; 
+      startDateTime: Timestamp; 
+      endDateTime: Timestamp; 
+      eventName: string;
+    }> = [];
+    
+    if (recurring && recurring.isRecurring) {
+      const recurringStartDate = new Date(recurring.recurringStartDate);
+      const recurringEndDate = new Date(recurring.recurringEndDate);
+      
+      // Generate all recurring event dates
+      const recurringDates = generateRecurringEventDates(
+        startDate,
+        endDate,
+        recurringStartDate,
+        recurringEndDate,
+        recurring.daysOfWeek
+      );
+      
+      // Debug: Log the first few dates to see what's being generated
+      console.log('Generated recurring dates (first 3):');
+      recurringDates.slice(0, 3).forEach((dateInfo, index) => {
+        console.log(`Event ${index + 1}:`);
+        console.log(`  Start Timestamp: ${dateInfo.startDateTime.seconds}.${dateInfo.startDateTime.nanoseconds}`);
+        console.log(`  End Timestamp: ${dateInfo.endDateTime.seconds}.${dateInfo.endDateTime.nanoseconds}`);
+        console.log(`  Start: ${dateInfo.startDateTime.toDate().toISOString()} (UTC)`);
+        console.log(`  End: ${dateInfo.endDateTime.toDate().toISOString()} (UTC)`);
+        console.log(`  Start Local: ${dateInfo.startDateTime.toDate().toString()}`);
+        console.log(`  End Local: ${dateInfo.endDateTime.toDate().toString()}`);
+      });
+      
+      // Create event entries for each recurring date
+      eventsToCreate = recurringDates.map((dateInfo, index) => ({
+        eventId: providedEventId ? `${providedEventId}_${index}` : uuidv4(),
+        startDateTime: dateInfo.startDateTime,
+        endDateTime: dateInfo.endDateTime,
+        eventName: `${eventName} (${dateInfo.startDateTime.toDate().toLocaleDateString()})`,
+      }));
+    } else {
+      // Single event
+      eventsToCreate = [{
+        eventId: providedEventId || uuidv4(),
+        startDateTime: Timestamp.fromMillis(startDate.getTime()),
+        endDateTime: Timestamp.fromMillis(endDate.getTime()),
+        eventName: eventName,
+      }];
+    }
     
     // Fetch data for all IDs before the transaction
     const fetchedData: {
@@ -235,12 +350,8 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
       }
     }
 
-    // Prepare event data with both IDs and names
-    const eventData = {
-      id: eventId, // This will be the UUID
-      eventName,
-      startDateTime: startDate,
-      endDateTime: endDate,
+    // Prepare base event data (will be customized for each event)
+    const baseEventData = {
       companyId,
       tableLayouts: fetchedData.tableLayouts,
       categories: fetchedData.categories,
@@ -273,167 +384,202 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
       }
     }
 
-    // Check for existing singular table_list documents before transaction
-    const eventRef = db
-      .collection('companies')
-      .doc(companyId)
-      .collection('events')
-      .doc(eventId);
-    
-    const singularTableListRef = eventRef.collection('table_list');
-    const singularDocsSnapshot = await singularTableListRef.get();
-    const singularDocsToDelete = singularDocsSnapshot.docs.map(doc => doc.ref);
+    // Note: We no longer need to check for singular table_list documents 
+    // since we're creating events with proper structure from the start
     
     // Run all operations in a transaction
     await db.runTransaction(async (transaction) => {
-      // 1. Create the event document
-      transaction.set(eventRef, eventData);
-      
-      // Variables to track totals across all layouts
-      let totalTables = 0;
-      let totalGuests = 0;
-      let totalCheckedIn = 0;
-      let totalBooked = 0;
-      let totalTableLimit = 0;
-      let totalTableSpent = 0;
-      
-      // 2. Process each layout (only if tableLayouts are provided)
-      if (fetchedData.tableLayouts.length > 0) {
-        for (const layout of fetchedData.tableLayouts) {
-          const layoutData = layoutsData[layout.id];
-          const items = layoutData?.items || [];
-          
-          if (items.length > 0) {
-            // Filter only table items (exclude objects)
-            const tableItems = items.filter((item: any) => item.type === 'ItemType.table');
+      // Create all events (single or recurring)
+      for (const eventToCreate of eventsToCreate) {
+        // 1. Create the event document
+        const currentEventRef = db
+          .collection('companies')
+          .doc(companyId)
+          .collection('events')
+          .doc(eventToCreate.eventId);
+        
+        // Debug: Log what we're about to store
+        console.log(`Storing event ${eventToCreate.eventId}:`);
+        console.log(`  Start Timestamp: ${eventToCreate.startDateTime.seconds}.${eventToCreate.startDateTime.nanoseconds}`);
+        console.log(`  End Timestamp: ${eventToCreate.endDateTime.seconds}.${eventToCreate.endDateTime.nanoseconds}`);
+        console.log(`  Start: ${eventToCreate.startDateTime.toDate().toISOString()} (UTC)`);
+        console.log(`  End: ${eventToCreate.endDateTime.toDate().toISOString()} (UTC)`);
+        
+        const currentEventData = {
+          ...baseEventData,
+          id: eventToCreate.eventId,
+          eventName: eventToCreate.eventName,
+          startDateTime: eventToCreate.startDateTime,
+          endDateTime: eventToCreate.endDateTime,
+          // Add recurring information if applicable
+          ...(recurring && recurring.isRecurring ? {
+            recurring: {
+              isRecurring: true,
+              recurringStartDate: new Date(recurring.recurringStartDate),
+              recurringEndDate: new Date(recurring.recurringEndDate),
+              daysOfWeek: recurring.daysOfWeek,
+              originalEventName: eventName,
+            }
+          } : {}),
+        };
+        
+        transaction.set(currentEventRef, currentEventData);
+        
+        // Variables to track totals across all layouts for this event
+        let totalTables = 0;
+        let totalGuests = 0;
+        let totalCheckedIn = 0;
+        let totalBooked = 0;
+        let totalTableLimit = 0;
+        let totalTableSpent = 0;
+        
+        // 2. Process each layout (only if tableLayouts are provided)
+        if (fetchedData.tableLayouts.length > 0) {
+          for (const layout of fetchedData.tableLayouts) {
+            const layoutData = layoutsData[layout.id];
+            const items = layoutData?.items || [];
             
-            if (tableItems.length > 0) {
-              // Add logs to each table
-              const tablesWithLogs = tableItems.map((table: TableItem) => {
-                return {
-                  ...table,
-                  logs: [{
-                    action: 'created',
-                    userName: userName,
-                    timestamp: new Date().toISOString(),
-                    changes: {'status': 'Table created'},
-                  }],
-                };
-              });
+            if (items.length > 0) {
+              // Filter only table items (exclude objects)
+              const tableItems = items.filter((item: any) => item.type === 'ItemType.table');
               
-              // Create table_lists document for this layout (use layout ID as document ID)
-              const tableListsRef = eventRef
-                .collection('table_lists')
-                .doc(layout.id);
-              
-              transaction.set(tableListsRef, {
-                items: tablesWithLogs,
-                layoutName: layout.name, // Store the name for reference
-                lastUpdated: FieldValue.serverTimestamp(),
-              });
-              
-              // Accumulate totals only for table items
-              totalTables += tableItems.length;
-              for (const table of tableItems) {
-                totalGuests += parseInt(table.nrOfGuests || '0', 10) || 0;
-                totalCheckedIn += parseInt(table.tableCheckedIn || '0', 10) || 0;
-                totalTableLimit += parseInt(table.tableLimit || '0', 10) || 0;
-                totalTableSpent += parseInt(table.tableSpent || '0', 10) || 0;
+              if (tableItems.length > 0) {
+                // Add logs to each table
+                const tablesWithLogs = tableItems.map((table: TableItem) => {
+                  return {
+                    ...table,
+                    logs: [{
+                      action: 'created',
+                      userName: userName,
+                      timestamp: new Date().toISOString(),
+                      changes: {'status': 'Table created'},
+                    }],
+                  };
+                });
                 
-                if ((table.name && table.name.trim().length > 0) || 
-                    (table.tableBookedBy && table.tableBookedBy.trim().length > 0)) {
-                  totalBooked++;
+                // Create table_lists document for this layout (use layout ID as document ID)
+                const tableListsRef = currentEventRef
+                  .collection('table_lists')
+                  .doc(layout.id);
+                
+                transaction.set(tableListsRef, {
+                  items: tablesWithLogs,
+                  layoutName: layout.name, // Store the name for reference
+                  lastUpdated: FieldValue.serverTimestamp(),
+                });
+                
+                // Accumulate totals only for table items
+                totalTables += tableItems.length;
+                for (const table of tableItems) {
+                  totalGuests += parseInt(table.nrOfGuests || '0', 10) || 0;
+                  totalCheckedIn += parseInt(table.tableCheckedIn || '0', 10) || 0;
+                  totalTableLimit += parseInt(table.tableLimit || '0', 10) || 0;
+                  totalTableSpent += parseInt(table.tableSpent || '0', 10) || 0;
+                  
+                  if ((table.name && table.name.trim().length > 0) || 
+                      (table.tableBookedBy && table.tableBookedBy.trim().length > 0)) {
+                    totalBooked++;
+                  }
                 }
               }
             }
           }
         }
-      }
-      
-      // 3. Delete any singular table_list documents (cleanup)
-      singularDocsToDelete.forEach(docRef => {
-        transaction.delete(docRef);
-      });
-      
-      // 4. Update table summary
-      const tableSummaryRef = eventRef
-        .collection('table_lists')
-        .doc('tableSummary');
-      
-      transaction.set(tableSummaryRef, {
-        totalTables,
-        totalGuests,
-        totalCheckedIn,
-        totalBooked,
-        totalTableLimit,
-        totalTableSpent,
-        lastUpdated: FieldValue.serverTimestamp(),
-      });
-      
-      // 5. Create guest list
-      const guestListMainRef = eventRef
-        .collection('guest_lists')
-        .doc('main');
-      
-      transaction.set(guestListMainRef, {
-        eventId,
-        guestList: [],
-        lastUpdated: FieldValue.serverTimestamp(),
-      });
-      
-      // 6. Create additional guest lists if specified
-      if (additionalGuestLists && additionalGuestLists.length > 0) {
-        for (const guestListName of additionalGuestLists) {
-          const additionalGuestListId = uuidv4();
-          const additionalGuestListRef = eventRef
-            .collection('guest_lists')
-            .doc(additionalGuestListId);
-          
-          transaction.set(additionalGuestListRef, {
-            eventId,
-            guestList: [],
-            guestListName: guestListName, // Store the name in the document
-            lastUpdated: FieldValue.serverTimestamp(),
-          });
+        
+        // 3. Update table summary for this event
+        const tableSummaryRef = currentEventRef
+          .collection('table_lists')
+          .doc('tableSummary');
+        
+        transaction.set(tableSummaryRef, {
+          totalTables,
+          totalGuests,
+          totalCheckedIn,
+          totalBooked,
+          totalTableLimit,
+          totalTableSpent,
+          lastUpdated: FieldValue.serverTimestamp(),
+        });
+        
+        // 4. Create guest list
+        const guestListMainRef = currentEventRef
+          .collection('guest_lists')
+          .doc('main');
+        
+        transaction.set(guestListMainRef, {
+          eventId: eventToCreate.eventId,
+          guestList: [],
+          lastUpdated: FieldValue.serverTimestamp(),
+        });
+        
+        // 5. Create additional guest lists if specified
+        if (additionalGuestLists && additionalGuestLists.length > 0) {
+          for (const guestListName of additionalGuestLists) {
+            const additionalGuestListId = uuidv4();
+            const additionalGuestListRef = currentEventRef
+              .collection('guest_lists')
+              .doc(additionalGuestListId);
+            
+            transaction.set(additionalGuestListRef, {
+              eventId: eventToCreate.eventId,
+              guestList: [],
+              guestListName: guestListName, // Store the name in the document
+              lastUpdated: FieldValue.serverTimestamp(),
+            });
+          }
         }
+        
+        // 6. Create guest list summary
+        const guestListSummaryRef = currentEventRef
+          .collection('guest_lists')
+          .doc('guestListSummary');
+        
+        transaction.set(guestListSummaryRef, {
+          totalGuests: 0,
+          totalCheckedIn: 0,
+          totalNormalGuests: 0,
+          totalFreeGuests: 0,
+          normalGuestsCheckedIn: 0,
+          freeGuestsCheckedIn: 0,
+          lastUpdated: FieldValue.serverTimestamp(),
+        });
+        
+        // 7. Initialize guest list log
+        const guestListLogRef = currentEventRef
+          .collection('guest_lists')
+          .doc('guestlistLog');
+        
+        transaction.set(guestListLogRef, {
+          logs: [],
+          lastUpdated: FieldValue.serverTimestamp(),
+        });
       }
-      
-      // 7. Create guest list summary
-      const guestListSummaryRef = eventRef
-        .collection('guest_lists')
-        .doc('guestListSummary');
-      
-      transaction.set(guestListSummaryRef, {
-        totalGuests: 0,
-        totalCheckedIn: 0,
-        totalNormalGuests: 0,
-        totalFreeGuests: 0,
-        normalGuestsCheckedIn: 0,
-        freeGuestsCheckedIn: 0,
-        lastUpdated: FieldValue.serverTimestamp(),
-      });
-      
-      // 8. Initialize guest list log
-      const guestListLogRef = eventRef
-        .collection('guest_lists')
-        .doc('guestlistLog');
-      
-      transaction.set(guestListLogRef, {
-        logs: [],
-        lastUpdated: FieldValue.serverTimestamp(),
-      });
     });
     
     return {
       success: true,
-      message: "Event created successfully",
+      message: recurring && recurring.isRecurring 
+        ? `Successfully created ${eventsToCreate.length} recurring events` 
+        : "Event created successfully",
       data: {
-        eventId, // Return the generated UUID
+        eventsCreated: eventsToCreate.length,
+        events: eventsToCreate.map(event => ({
+          eventId: event.eventId,
+          eventName: event.eventName,
+          startDateTime: event.startDateTime.toDate().toISOString(),
+          endDateTime: event.endDateTime.toDate().toISOString(),
+        })),
         tableLayouts: fetchedData.tableLayouts,
         categories: fetchedData.categories,
         clubCardIds: fetchedData.clubCardIds,
         eventGenre: fetchedData.eventGenre,
         additionalGuestLists: additionalGuestLists || [],
+        recurring: recurring && recurring.isRecurring ? {
+          isRecurring: true,
+          recurringStartDate: recurring.recurringStartDate,
+          recurringEndDate: recurring.recurringEndDate,
+          daysOfWeek: recurring.daysOfWeek,
+        } : null,
       },
     };
   } catch (error) {
@@ -527,9 +673,17 @@ export const updateEvent = onCall({enforceAppCheck: false}, async (request) => {
     // Get current event data to merge with updates
     const currentEventData = eventDoc.data();
     
-    // Convert dates to proper format (only if provided)
-    const startDate = startDateTime ? new Date(startDateTime) : currentEventData?.startDateTime;
-    const endDate = endDateTime ? new Date(endDateTime) : currentEventData?.endDateTime;
+    // Convert dates to proper format and adjust for UTC+2 timezone (only if provided)
+    let startDate = startDateTime ? new Date(startDateTime) : currentEventData?.startDateTime;
+    let endDate = endDateTime ? new Date(endDateTime) : currentEventData?.endDateTime;
+    
+    // Adjust for UTC+2 timezone (subtract 2 hours from the input) if dates were provided
+    if (startDateTime) {
+      startDate.setUTCHours(startDate.getUTCHours() - 2);
+    }
+    if (endDateTime) {
+      endDate.setUTCHours(endDate.getUTCHours() - 2);
+    }
     
     // Fetch data for all IDs before the transaction (only if provided)
     const fetchedData: {
@@ -1743,3 +1897,4 @@ export const removeEventTicket = onCall({
     };
   }
 }); 
+
