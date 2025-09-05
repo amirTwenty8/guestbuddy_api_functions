@@ -33,6 +33,10 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 27. **createTableLayout** - Create table layouts from canvas objects with rotation support
 28. **updateTableLayout** - Update existing table layouts with partial field updates and rotation support
 29. **deleteTableLayout** - Delete table layouts with safety validation to prevent deletion of layouts in use
+30. **createLandingPage** - Create custom landing pages for events with password protection and styling
+31. **updateLandingPage** - Update existing landing pages with automatic slug regeneration and validation
+32. **deleteLandingPage** - Delete landing pages with proper cleanup
+33. **submitContactForm** - Submit support requests with attachments and email notifications
 
 ## Prerequisites
 
@@ -4287,3 +4291,1725 @@ The function prevents deletion in these scenarios:
 - Invalid request data
 
 This ensures data integrity and prevents broken references in your application.
+
+## Testing the Chat API Functions
+
+The Chat API provides comprehensive messaging and table booking functionality with the following endpoints:
+
+### Available Chat Endpoints
+
+1. **Get User Conversations** - Get all conversations for a specific user
+2. **Get Company Conversations** - Get all conversations for a specific company
+3. **Get Messages** - Get all messages for a conversation
+4. **Send Message** - Send a message in a conversation
+5. **Mark Conversation as Read** - Mark all messages in a conversation as read
+6. **Create Table Booking** - Create a table booking request with conversation
+7. **Update Booking Status** - Update table booking status (company staff only)
+8. **Get User Bookings** - Get all bookings for a specific user
+9. **Get Company Bookings** - Get all bookings for a specific company
+
+### Base URL
+
+All chat endpoints use the following base URL:
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat`
+
+## Testing Get User Conversations
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/conversations/user/{userId}`
+- **Method**: GET
+- **Headers**: 
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `userId`: The user ID to get conversations for
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "user-id_company-id",
+      "userId": "user-id",
+      "companyId": "company-id",
+      "userFirstName": "John",
+      "userLastName": "Doe",
+      "companyName": "Restaurant XYZ",
+      "lastMessage": "Your table booking has been confirmed! 🎉",
+      "lastUpdated": "2025-01-20T15:30:00.000Z",
+      "unreadCountUser": 0,
+      "unreadCountCompany": 1,
+      "isActive": true,
+      "createdAt": "2025-01-20T14:00:00.000Z"
+    }
+  ]
+}
+```
+
+### Error Response (Permission Denied)
+
+```json
+{
+  "success": false,
+  "error": "Permission denied"
+}
+```
+
+### What the Endpoint Does
+
+1. **Permission Check**: Verifies the requesting user can access the conversations (must be the user or admin)
+2. **Query Conversations**: Gets all active conversations for the user
+3. **Ordering**: Returns conversations ordered by last updated (newest first)
+4. **Active Filter**: Only returns conversations where `isActive` is true
+
+## Testing Get Company Conversations
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/conversations/company/{companyId}`
+- **Method**: GET
+- **Headers**: 
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `companyId`: The company ID to get conversations for
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "user-id_company-id",
+      "userId": "user-id",
+      "companyId": "company-id",
+      "userFirstName": "John",
+      "userLastName": "Doe",
+      "companyName": "Restaurant XYZ",
+      "lastMessage": "Table booking request submitted for 1/20/2025 at 8:00:00 PM for 4 people.",
+      "lastUpdated": "2025-01-20T15:30:00.000Z",
+      "unreadCountUser": 1,
+      "unreadCountCompany": 0,
+      "isActive": true,
+      "createdAt": "2025-01-20T14:00:00.000Z"
+    }
+  ]
+}
+```
+
+### Error Response (Company Not Found)
+
+```json
+{
+  "success": false,
+  "error": "Company not found"
+}
+```
+
+### What the Endpoint Does
+
+1. **Company Validation**: Checks if the company exists
+2. **Permission Check**: Verifies the user has access to the company (staff member or admin)
+3. **Query Conversations**: Gets all active conversations for the company
+4. **Role-Based Access**: Supports admins, editors, promotors, tableStaff, and staff roles
+
+## Testing Get Messages
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/messages/{conversationId}`
+- **Method**: GET
+- **Headers**: 
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `conversationId`: The conversation ID to get messages for
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "message-id-1",
+      "conversationId": "user-id_company-id",
+      "senderId": "user-id",
+      "senderType": "user",
+      "message": "Hi, I'd like to book a table for tonight at 8 PM for 4 people.",
+      "messageType": "text",
+      "timestamp": "2025-01-20T14:00:00.000Z",
+      "readStatus": true,
+      "metadata": null
+    },
+    {
+      "id": "message-id-2",
+      "conversationId": "user-id_company-id",
+      "senderId": "company-staff-id",
+      "senderType": "company",
+      "message": "Your table booking has been confirmed! 🎉",
+      "messageType": "booking",
+      "timestamp": "2025-01-20T15:30:00.000Z",
+      "readStatus": false,
+      "metadata": {
+        "bookingId": "booking-id",
+        "status": "confirmed"
+      }
+    }
+  ]
+}
+```
+
+### Error Response (Conversation Not Found)
+
+```json
+{
+  "success": false,
+  "error": "Conversation not found"
+}
+```
+
+### What the Endpoint Does
+
+1. **Conversation Validation**: Checks if the conversation exists
+2. **Permission Check**: Verifies the user has access to the conversation
+3. **Query Messages**: Gets all messages ordered by timestamp (oldest first)
+4. **Message Structure**: Returns complete message data including metadata
+
+## Testing Send Message
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/messages/{conversationId}`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `conversationId`: The conversation ID to send the message to
+
+### Request Body (Text Message)
+
+```json
+{
+  "message": "Thank you for the confirmation! Looking forward to dining with you tonight.",
+  "messageType": "text"
+}
+```
+
+### Request Body (Message with Metadata)
+
+```json
+{
+  "message": "Here are the special dietary requirements for our table.",
+  "messageType": "text",
+  "metadata": {
+    "requirements": ["vegetarian", "gluten-free"],
+    "tableSize": 4
+  }
+}
+```
+
+### Validation Rules
+
+- `message` is required and must be a string
+- `messageType` defaults to "text" if not provided
+- `metadata` is optional and can contain any additional data
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "generated-message-id",
+    "conversationId": "user-id_company-id",
+    "senderId": "user-id",
+    "senderType": "user",
+    "message": "Thank you for the confirmation! Looking forward to dining with you tonight.",
+    "messageType": "text",
+    "timestamp": "2025-01-20T16:00:00.000Z",
+    "readStatus": false,
+    "metadata": null
+  }
+}
+```
+
+### What the Endpoint Does
+
+1. **Message Validation**: Ensures message is provided and valid
+2. **Conversation Access**: Checks user has permission to send messages
+3. **Sender Detection**: Automatically determines if sender is user or company
+4. **Message Creation**: Creates message with timestamp and metadata
+5. **Conversation Update**: Updates conversation with last message and unread counts
+6. **Unread Counter**: Increments unread count for the recipient
+
+## Testing Mark Conversation as Read
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/conversations/{conversationId}/read`
+- **Method**: PUT
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `conversationId`: The conversation ID to mark as read
+
+### Request Body
+
+```json
+{
+  "isUser": true
+}
+```
+
+### Validation Rules
+
+- `isUser`: Boolean indicating if the user (true) or company (false) is marking as read
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "message": "Conversation marked as read"
+}
+```
+
+### What the Endpoint Does
+
+1. **Conversation Validation**: Checks if conversation exists and user has access
+2. **Unread Count Reset**: Resets the appropriate unread counter to 0
+3. **Message Status Update**: Marks all unread messages as read
+4. **Batch Operation**: Uses Firestore batch to update multiple messages efficiently
+
+## Testing Create Table Booking
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/bookings`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "companyId": "company-id",
+  "date": "2025-01-20T20:00:00Z",
+  "numberOfPeople": 4,
+  "comments": "Celebrating anniversary, would prefer a quiet table",
+  "images": [
+    "https://firebasestorage.googleapis.com/v0/b/project/o/bookings%2Fimage1.jpg",
+    "https://firebasestorage.googleapis.com/v0/b/project/o/bookings%2Fimage2.jpg"
+  ]
+}
+```
+
+### Request Body (Minimal)
+
+```json
+{
+  "companyId": "company-id",
+  "date": "2025-01-20T20:00:00Z",
+  "numberOfPeople": 2
+}
+```
+
+### Validation Rules
+
+- `companyId`, `date`, `numberOfPeople` are required
+- `comments` and `images` are optional
+- `date` must be a valid ISO date string
+- `numberOfPeople` must be a positive integer
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "bookingId": "generated-booking-id",
+    "userId": "user-id",
+    "companyId": "company-id",
+    "conversationId": "user-id_company-id",
+    "date": "2025-01-20T20:00:00.000Z",
+    "numberOfPeople": 4,
+    "comments": "Celebrating anniversary, would prefer a quiet table",
+    "images": [
+      "https://firebasestorage.googleapis.com/v0/b/project/o/bookings%2Fimage1.jpg",
+      "https://firebasestorage.googleapis.com/v0/b/project/o/bookings%2Fimage2.jpg"
+    ],
+    "status": "pending",
+    "createdAt": "2025-01-20T16:30:00.000Z",
+    "userFirstName": "John",
+    "userLastName": "Doe",
+    "companyName": "Restaurant XYZ"
+  }
+}
+```
+
+### What the Endpoint Does
+
+1. **User Authentication**: Ensures user is authenticated
+2. **Company/User Validation**: Checks if both user and company exist
+3. **Conversation Management**: Creates conversation if it doesn't exist
+4. **Booking Creation**: Creates table booking with pending status
+5. **Message Generation**: Sends booking request message to conversation
+6. **Notification**: Updates conversation with new message and unread count
+
+## Testing Update Booking Status
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/bookings/{bookingId}/status`
+- **Method**: PUT
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `bookingId`: The booking ID to update
+
+### Request Body (Confirm Booking)
+
+```json
+{
+  "status": "confirmed",
+  "responseMessage": "We've reserved your table for 8 PM tonight. Looking forward to seeing you!"
+}
+```
+
+### Request Body (Reject Booking)
+
+```json
+{
+  "status": "rejected",
+  "responseMessage": "Unfortunately, we're fully booked for that time. Would 7:30 PM or 9:30 PM work for you?"
+}
+```
+
+### Request Body (Cancel Booking)
+
+```json
+{
+  "status": "cancelled"
+}
+```
+
+### Validation Rules
+
+- `status` is required and must be one of: "pending", "confirmed", "rejected", "cancelled"
+- `responseMessage` is optional but recommended for better customer communication
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "message": "Booking status updated successfully"
+}
+```
+
+### What the Endpoint Does
+
+1. **Booking Validation**: Checks if booking exists
+2. **Permission Check**: Verifies user has company access (staff member)
+3. **Status Update**: Updates booking status in database
+4. **Message Generation**: Creates appropriate status message
+5. **Conversation Update**: Sends status message to conversation
+6. **Customer Notification**: Increments user's unread count
+
+### Status Messages
+
+- **Confirmed**: "Your table booking has been confirmed! 🎉"
+- **Rejected**: "Your table booking has been rejected."
+- **Cancelled**: "Your table booking has been cancelled."
+
+## Testing Get User Bookings
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/bookings/user/{userId}`
+- **Method**: GET
+- **Headers**: 
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `userId`: The user ID to get bookings for
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "booking-id-1",
+      "userId": "user-id",
+      "companyId": "company-id",
+      "conversationId": "user-id_company-id",
+      "date": "2025-01-20T20:00:00.000Z",
+      "numberOfPeople": 4,
+      "comments": "Celebrating anniversary",
+      "images": [],
+      "status": "confirmed",
+      "createdAt": "2025-01-20T16:30:00.000Z",
+      "userFirstName": "John",
+      "userLastName": "Doe",
+      "companyName": "Restaurant XYZ"
+    },
+    {
+      "id": "booking-id-2",
+      "userId": "user-id",
+      "companyId": "another-company-id",
+      "conversationId": "user-id_another-company-id",
+      "date": "2025-01-25T19:00:00.000Z",
+      "numberOfPeople": 2,
+      "comments": null,
+      "images": [],
+      "status": "pending",
+      "createdAt": "2025-01-19T10:15:00.000Z",
+      "userFirstName": "John",
+      "userLastName": "Doe",
+      "companyName": "Cafe ABC"
+    }
+  ]
+}
+```
+
+### What the Endpoint Does
+
+1. **Permission Check**: Verifies requesting user can access the bookings
+2. **Query Bookings**: Gets all bookings for the user
+3. **Ordering**: Returns bookings ordered by creation date (newest first)
+4. **Complete Data**: Includes all booking details and company information
+
+## Testing Get Company Bookings
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/chat/bookings/company/{companyId}`
+- **Method**: GET
+- **Headers**: 
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### URL Parameters
+
+- `companyId`: The company ID to get bookings for
+
+### Expected Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "booking-id-1",
+      "userId": "user-id-1",
+      "companyId": "company-id",
+      "conversationId": "user-id-1_company-id",
+      "date": "2025-01-20T20:00:00.000Z",
+      "numberOfPeople": 4,
+      "comments": "Celebrating anniversary",
+      "images": [],
+      "status": "confirmed",
+      "createdAt": "2025-01-20T16:30:00.000Z",
+      "userFirstName": "John",
+      "userLastName": "Doe",
+      "companyName": "Restaurant XYZ"
+    },
+    {
+      "id": "booking-id-2",
+      "userId": "user-id-2",
+      "companyId": "company-id",
+      "conversationId": "user-id-2_company-id",
+      "date": "2025-01-20T19:30:00.000Z",
+      "numberOfPeople": 6,
+      "comments": "Business dinner",
+      "images": [],
+      "status": "pending",
+      "createdAt": "2025-01-20T14:00:00.000Z",
+      "userFirstName": "Jane",
+      "userLastName": "Smith",
+      "companyName": "Restaurant XYZ"
+    }
+  ]
+}
+```
+
+### What the Endpoint Does
+
+1. **Company Validation**: Checks if company exists
+2. **Permission Check**: Verifies user has company access (staff member)
+3. **Query Bookings**: Gets all bookings for the company
+4. **Ordering**: Returns bookings ordered by creation date (newest first)
+5. **Staff Access**: Supports all company roles (admins, editors, promotors, tableStaff, staff)
+
+## Chat API Workflow Examples
+
+### Scenario 1: Customer Makes Table Booking
+
+1. **Create Booking**: Customer calls `POST /bookings` with date and party size
+2. **Automatic Conversation**: System creates conversation if it doesn't exist
+3. **Booking Message**: System sends booking request message to conversation
+4. **Company Notification**: Company sees new unread message about booking
+5. **Status Update**: Company staff calls `PUT /bookings/{id}/status` to confirm/reject
+6. **Customer Notification**: Customer receives status update message
+
+### Scenario 2: Ongoing Conversation
+
+1. **Get Messages**: Customer calls `GET /messages/{conversationId}` to see history
+2. **Send Message**: Customer calls `POST /messages/{conversationId}` with question
+3. **Company Response**: Company staff sends reply message
+4. **Mark as Read**: Both parties call `PUT /conversations/{id}/read` when viewing
+
+### Scenario 3: Company Management
+
+1. **View All Conversations**: Staff calls `GET /conversations/company/{id}` for overview
+2. **Check Bookings**: Staff calls `GET /bookings/company/{id}` for all pending bookings
+3. **Update Bookings**: Staff updates booking statuses as needed
+4. **Customer Communication**: Staff sends messages for clarifications
+
+### Best Practices
+
+✅ **Authentication Required** - All endpoints require valid Firebase Auth token  
+✅ **Permission-Based Access** - Users can only access their own data or company data they have access to  
+✅ **Real-time Updates** - Use Firestore listeners for real-time conversation updates  
+✅ **Message Types** - Use appropriate message types ("text", "booking") for better UX  
+✅ **Metadata Usage** - Include relevant metadata for booking messages  
+✅ **Read Status Management** - Mark conversations as read to maintain accurate unread counts  
+✅ **Error Handling** - Handle permission denied and not found errors gracefully  
+
+### Key Features
+
+✅ **Automatic Conversation Creation** - Conversations created automatically when needed  
+✅ **Unread Count Management** - Separate counters for user and company  
+✅ **Message Metadata** - Support for rich message data  
+✅ **Booking Integration** - Complete table booking workflow  
+✅ **Role-Based Access** - Support for different company roles  
+✅ **Message History** - Complete conversation history  
+✅ **Status Tracking** - Booking status management with notifications
+
+### Database Structure
+
+**Conversation Document:**
+```json
+{
+  "userId": "user-id",
+  "companyId": "company-id",
+  "userFirstName": "John",
+  "userLastName": "Doe",
+  "companyName": "Restaurant XYZ",
+  "lastMessage": "Your table booking has been confirmed! 🎉",
+  "lastUpdated": "2025-01-20T15:30:00.000Z",
+  "unreadCountUser": 0,
+  "unreadCountCompany": 1,
+  "isActive": true,
+  "createdAt": "2025-01-20T14:00:00.000Z"
+}
+```
+
+**Message Document:**
+```json
+{
+  "conversationId": "user-id_company-id",
+  "senderId": "user-id",
+  "senderType": "user",
+  "message": "Hi, I'd like to book a table for tonight.",
+  "messageType": "text",
+  "timestamp": "2025-01-20T14:00:00.000Z",
+  "readStatus": false,
+  "metadata": null
+}
+```
+
+**Table Booking Document:**
+```json
+{
+  "userId": "user-id",
+  "companyId": "company-id",
+  "conversationId": "user-id_company-id",
+  "date": "2025-01-20T20:00:00.000Z",
+  "numberOfPeople": 4,
+  "comments": "Celebrating anniversary",
+  "images": [],
+  "status": "pending",
+  "createdAt": "2025-01-20T16:30:00.000Z",
+  "userFirstName": "John",
+  "userLastName": "Doe",
+  "companyName": "Restaurant XYZ"
+}
+```
+
+## Testing the createLandingPage Function
+
+### Request Details
+
+- **URL**: `https://landingpages-kb7sximd6a-uc.a.run.app/`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+  - x-company-id: YOUR_COMPANY_ID
+
+### Request Body Examples
+
+#### Basic Landing Page
+
+```json
+{
+  "title": "Summer Music Festival 2024",
+  "description": "Join us for an unforgettable night of music, food, and entertainment under the stars."
+}
+```
+
+#### Landing Page with Event Association
+
+```json
+{
+  "title": "VIP Table Booking - New Year's Eve",
+  "description": "Reserve your VIP table for the most exclusive New Year's Eve celebration in the city.",
+  "eventId": "event-123",
+  "showTickets": true,
+  "enableGuestRegistration": true
+}
+```
+
+#### Password Protected Landing Page
+
+```json
+{
+  "title": "Private Corporate Event",
+  "description": "Exclusive corporate networking event for invited guests only.",
+  "isPasswordProtected": true,
+  "password": "corporate2024",
+  "guestCategoryId": "category-456"
+}
+```
+
+#### Fully Customized Landing Page
+
+```json
+{
+  "title": "Elegant Wedding Reception",
+  "description": "Celebrate with us as we begin our journey together. RSVP required.",
+  "eventId": "wedding-event-789",
+  "guestCategoryId": "wedding-guests",
+  "showTickets": false,
+  "enableGuestRegistration": true,
+  "isPasswordProtected": true,
+  "password": "wedding2024",
+  "backgroundImageUrl": "https://example.com/wedding-background.jpg",
+  "customStyles": {
+    "primaryColor": "#d4af37",
+    "textColor": "#ffffff",
+    "backgroundColor": "#2c1810"
+  }
+}
+```
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "landing-page-abc123",
+    "title": "Summer Music Festival 2024",
+    "description": "Join us for an unforgettable night of music, food, and entertainment under the stars.",
+    "slug": "company-slug/summer-music-festival-2024",
+    "eventId": null,
+    "guestCategoryId": null,
+    "showTickets": false,
+    "enableGuestRegistration": false,
+    "isPasswordProtected": false,
+    "password": null,
+    "backgroundImageUrl": null,
+    "customStyles": {
+      "primaryColor": "#3b82f6",
+      "textColor": "#ffffff",
+      "backgroundColor": "#111827"
+    },
+    "createdBy": "user-id",
+    "createdAt": "2024-01-15T10:00:00.000Z",
+    "updatedAt": "2024-01-15T10:00:00.000Z",
+    "isActive": true,
+    "views": 0,
+    "conversions": 0,
+    "url": "https://your-domain.com/landing/company-slug/summer-music-festival-2024"
+  },
+  "message": "Landing page created successfully"
+}
+```
+
+### Error Responses
+
+#### Missing Company ID
+```json
+{
+  "success": false,
+  "error": "Company ID is required"
+}
+```
+
+#### Event Not Found
+```json
+{
+  "success": false,
+  "error": "Event not found"
+}
+```
+
+#### Guest Category Not Found
+```json
+{
+  "success": false,
+  "error": "Guest category not found"
+}
+```
+
+#### Validation Error
+```json
+{
+  "success": false,
+  "error": "Validation failed",
+  "details": [
+    {
+      "field": "title",
+      "message": "Title is required and must be between 1 and 200 characters"
+    }
+  ]
+}
+```
+
+### Testing Scenarios
+
+#### Scenario 1: Basic Landing Page Creation
+
+1. **Prepare basic data** with title and description
+2. **Create landing page** using POST endpoint
+3. **Verify automatic slug generation** from title
+4. **Check default values** are applied correctly
+5. **Test public URL** accessibility
+
+#### Scenario 2: Event-Associated Landing Page
+
+1. **Create or identify target event** first
+2. **Create landing page** with eventId reference
+3. **Verify event validation** works correctly
+4. **Test showTickets and enableGuestRegistration** flags
+5. **Check event data** is properly linked
+
+#### Scenario 3: Password Protection Setup
+
+1. **Create password-protected landing page**
+2. **Test password requirement** on public access
+3. **Verify password validation** on public endpoint
+4. **Check security** - password not exposed in responses
+
+#### Scenario 4: Custom Styling
+
+1. **Create landing page** with custom styles
+2. **Verify style application** on public page
+3. **Test default style fallbacks** for missing values
+4. **Check color format validation** (hex codes)
+
+#### Scenario 5: Slug Uniqueness
+
+1. **Create landing page** with specific title
+2. **Create another page** with same title
+3. **Verify automatic slug differentiation** (adds counter)
+4. **Check both pages** have unique, working URLs
+
+### Best Practices
+
+✅ **Validate References** - Ensure eventId and categoryId exist before creation  
+✅ **Test Slug Generation** - Verify URLs are SEO-friendly and unique  
+✅ **Secure Passwords** - Use strong passwords for protected pages  
+✅ **Custom Styling** - Test color codes and visual appearance  
+✅ **Public Access** - Always test the generated public URL
+
+## Testing the getLandingPages Function
+
+### Request Details
+
+- **URL**: `https://landingpages-kb7sximd6a-uc.a.run.app/`
+- **Method**: GET
+- **Headers**: 
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+  - x-company-id: YOUR_COMPANY_ID
+
+### Query Parameters
+
+#### Get All Landing Pages
+
+```
+GET https://landingpages-kb7sximd6a-uc.a.run.app/
+```
+
+#### Filter by Status
+
+```
+GET https://landingpages-kb7sximd6a-uc.a.run.app/?status=active
+GET https://landingpages-kb7sximd6a-uc.a.run.app/?status=inactive
+```
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "landing-page-1",
+      "title": "Summer Music Festival 2024",
+      "description": "Join us for an unforgettable night of music and entertainment",
+      "slug": "company-slug/summer-music-festival-2024",
+      "eventId": "event-123",
+      "guestCategoryId": null,
+      "showTickets": true,
+      "enableGuestRegistration": true,
+      "isPasswordProtected": false,
+      "backgroundImageUrl": "https://example.com/background.jpg",
+      "customStyles": {
+        "primaryColor": "#3b82f6",
+        "textColor": "#ffffff",
+        "backgroundColor": "#111827"
+      },
+      "createdBy": "user-id",
+      "createdAt": "2024-01-15T10:00:00.000Z",
+      "updatedAt": "2024-01-15T11:30:00.000Z",
+      "isActive": true,
+      "views": 150,
+      "conversions": 12,
+      "url": "https://your-domain.com/landing/company-slug/summer-music-festival-2024"
+    },
+    {
+      "id": "landing-page-2",
+      "title": "Private Corporate Event",
+      "description": "Exclusive networking event",
+      "slug": "company-slug/private-corporate-event",
+      "eventId": null,
+      "guestCategoryId": "corporate-guests",
+      "showTickets": false,
+      "enableGuestRegistration": true,
+      "isPasswordProtected": true,
+      "backgroundImageUrl": null,
+      "customStyles": {
+        "primaryColor": "#059669",
+        "textColor": "#ffffff",
+        "backgroundColor": "#1f2937"
+      },
+      "createdBy": "user-id",
+      "createdAt": "2024-01-14T14:00:00.000Z",
+      "updatedAt": "2024-01-14T14:00:00.000Z",
+      "isActive": true,
+      "views": 45,
+      "conversions": 8,
+      "url": "https://your-domain.com/landing/company-slug/private-corporate-event"
+    }
+  ]
+}
+```
+
+## Testing the getLandingPage Function (Single)
+
+### Request Details
+
+- **URL**: `https://landingpages-kb7sximd6a-uc.a.run.app/:id`
+- **Method**: GET
+- **Headers**: 
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+  - x-company-id: YOUR_COMPANY_ID
+
+### Request Examples
+
+#### Get Specific Landing Page
+
+```
+GET https://landingpages-kb7sximd6a-uc.a.run.app/landing-page-abc123
+```
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "landing-page-abc123",
+    "title": "Summer Music Festival 2024",
+    "description": "Join us for an unforgettable night of music and entertainment",
+    "slug": "company-slug/summer-music-festival-2024",
+    "eventId": "event-123",
+    "guestCategoryId": null,
+    "showTickets": true,
+    "enableGuestRegistration": true,
+    "isPasswordProtected": false,
+    "backgroundImageUrl": "https://example.com/background.jpg",
+    "customStyles": {
+      "primaryColor": "#3b82f6",
+      "textColor": "#ffffff",
+      "backgroundColor": "#111827"
+    },
+    "createdBy": "user-id",
+    "createdAt": "2024-01-15T10:00:00.000Z",
+    "updatedAt": "2024-01-15T11:30:00.000Z",
+    "isActive": true,
+    "views": 150,
+    "conversions": 12,
+    "url": "https://your-domain.com/landing/company-slug/summer-music-festival-2024"
+  }
+}
+```
+
+### Error Responses
+
+#### Landing Page Not Found
+```json
+{
+  "success": false,
+  "error": "Landing page not found"
+}
+```
+
+## Testing the getPublicLandingPage Function
+
+### Request Details
+
+- **URL**: `https://landingpages-kb7sximd6a-uc.a.run.app/public/:slug`
+- **Method**: GET
+- **Headers**: None required (public endpoint)
+
+### Request Examples
+
+#### Access Public Landing Page
+
+```
+GET https://landingpages-kb7sximd6a-uc.a.run.app/public/company-slug/summer-music-festival-2024
+```
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "landing-page-abc123",
+    "title": "Summer Music Festival 2024",
+    "description": "Join us for an unforgettable night of music and entertainment",
+    "slug": "company-slug/summer-music-festival-2024",
+    "eventId": "event-123",
+    "showTickets": true,
+    "enableGuestRegistration": true,
+    "isPasswordProtected": false,
+    "backgroundImageUrl": "https://example.com/background.jpg",
+    "customStyles": {
+      "primaryColor": "#3b82f6",
+      "textColor": "#ffffff",
+      "backgroundColor": "#111827"
+    },
+    "companyId": "company-id",
+    "views": 151
+  }
+}
+```
+
+**Note**: Password field is never returned in public endpoints for security.
+
+### Testing Scenarios
+
+#### Scenario 1: Public Access
+
+1. **Create public landing page** (not password protected)
+2. **Access via public endpoint** using slug
+3. **Verify view count increment** on each access
+4. **Check sensitive data exclusion** (no password field)
+
+#### Scenario 2: Password Protected Access
+
+1. **Create password-protected landing page**
+2. **Access public endpoint** and note isPasswordProtected: true
+3. **Implement password verification** in your frontend
+4. **Test with correct/incorrect passwords**
+
+### Best Practices
+
+✅ **No Authentication** - Public endpoints don't require auth tokens  
+✅ **View Tracking** - Each access increments the view counter  
+✅ **Security** - Sensitive data (passwords) never exposed  
+✅ **SEO Friendly** - Use clean, descriptive slugs
+
+## Testing the updateLandingPage Function
+
+### Request Details
+
+- **URL**: `https://landingpages-kb7sximd6a-uc.a.run.app/:id`
+- **Method**: PUT
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+  - x-company-id: YOUR_COMPANY_ID
+
+### Request Body Examples
+
+#### Update Title (Automatically Regenerates Slug)
+
+```json
+{
+  "data": {
+    "title": "Updated Event Landing Page"
+  }
+}
+```
+
+#### Update Multiple Fields
+
+```json
+{
+  "data": {
+    "title": "Summer Music Festival 2024",
+    "description": "Join us for an unforgettable night of music and entertainment",
+    "showTickets": true,
+    "enableGuestRegistration": true,
+    "backgroundImageUrl": "https://example.com/new-background.jpg",
+    "customStyles": {
+      "primaryColor": "#ff6b6b",
+      "textColor": "#ffffff",
+      "backgroundColor": "#2d3748"
+    }
+  }
+}
+```
+
+#### Enable Password Protection
+
+```json
+{
+  "data": {
+    "isPasswordProtected": true,
+    "password": "secret123"
+  }
+}
+```
+
+#### Disable Password Protection
+
+```json
+{
+  "data": {
+    "isPasswordProtected": false
+  }
+}
+```
+
+#### Update Event Association
+
+```json
+{
+  "data": {
+    "eventId": "event-123",
+    "guestCategoryId": "category-456"
+  }
+}
+```
+
+#### Update Custom Styles Only
+
+```json
+{
+  "data": {
+    "customStyles": {
+      "primaryColor": "#4ade80",
+      "backgroundColor": "#1f2937"
+    }
+  }
+}
+```
+
+#### Deactivate Landing Page
+
+```json
+{
+  "data": {
+    "isActive": false
+  }
+}
+```
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "landing-page-id",
+    "title": "Updated Event Landing Page",
+    "description": "Join us for an unforgettable night of music and entertainment",
+    "slug": "company-slug/updated-event-landing-page",
+    "eventId": "event-123",
+    "guestCategoryId": "category-456",
+    "showTickets": true,
+    "enableGuestRegistration": true,
+    "isPasswordProtected": true,
+    "backgroundImageUrl": "https://example.com/new-background.jpg",
+    "customStyles": {
+      "primaryColor": "#ff6b6b",
+      "textColor": "#ffffff",
+      "backgroundColor": "#2d3748"
+    },
+    "createdBy": "user-id",
+    "createdAt": "2024-01-15T10:00:00.000Z",
+    "updatedAt": "2024-01-15T11:30:00.000Z",
+    "isActive": true,
+    "views": 150,
+    "conversions": 12,
+    "url": "https://your-domain.com/landing/company-slug/updated-event-landing-page"
+  },
+  "message": "Landing page updated successfully"
+}
+```
+
+### Error Responses
+
+#### Landing Page Not Found
+```json
+{
+  "success": false,
+  "error": "Landing page not found"
+}
+```
+
+#### Invalid Event Reference
+```json
+{
+  "success": false,
+  "error": "Event not found"
+}
+```
+
+#### Invalid Category Reference
+```json
+{
+  "success": false,
+  "error": "Guest category not found"
+}
+```
+
+#### Missing Company ID
+```json
+{
+  "success": false,
+  "error": "Company ID is required"
+}
+```
+
+#### Validation Error
+```json
+{
+  "success": false,
+  "error": "Validation failed",
+  "details": [
+    {
+      "field": "title",
+      "message": "Title must be between 1 and 200 characters"
+    }
+  ]
+}
+```
+
+### Testing Scenarios
+
+#### Scenario 1: Update Title and Description
+
+1. **Get existing landing page** using GET endpoint
+2. **Update title and description** with meaningful content
+3. **Verify slug regeneration** in response
+4. **Check public URL** works with new slug
+
+#### Scenario 2: Change Event Association
+
+1. **Create or identify target event** for association
+2. **Update landing page** with new eventId
+3. **Verify event validation** works correctly
+4. **Test with invalid eventId** to ensure error handling
+
+#### Scenario 3: Update Styling
+
+1. **Update custom styles** with new colors
+2. **Verify style merging** preserves existing styles
+3. **Test partial style updates** (only primaryColor)
+4. **Check visual changes** on public landing page
+
+#### Scenario 4: Password Protection Management
+
+1. **Enable password protection** with secure password
+2. **Test password requirement** on public endpoint
+3. **Update password** while keeping protection enabled
+4. **Disable password protection** and verify removal
+
+#### Scenario 5: Bulk Field Updates
+
+1. **Prepare comprehensive update** with multiple fields
+2. **Submit single request** with all changes
+3. **Verify atomic update** (all changes applied)
+4. **Check updated timestamp** reflects changes
+
+### Best Practices
+
+✅ **Validate References** - Always verify eventId and categoryId exist  
+✅ **Test Slug Changes** - Confirm new slugs work in public URLs  
+✅ **Secure Passwords** - Use strong passwords for protection  
+✅ **Partial Updates** - Only send fields that need changing  
+✅ **Error Handling** - Test invalid data and missing references
+
+## Testing the deleteLandingPage Function
+
+### Request Details
+
+- **URL**: `https://landingpages-kb7sximd6a-uc.a.run.app/:id`
+- **Method**: DELETE
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+  - x-company-id: YOUR_COMPANY_ID
+
+### Request Examples
+
+#### Delete Landing Page by ID
+
+```
+DELETE /landingPages/landing-page-123
+```
+
+No request body is needed for deletion.
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "message": "Landing page deleted successfully"
+}
+```
+
+### Error Responses
+
+#### Landing Page Not Found
+```json
+{
+  "success": false,
+  "error": "Landing page not found"
+}
+```
+
+#### Missing Company ID
+```json
+{
+  "success": false,
+  "error": "Company ID is required"
+}
+```
+
+#### Unauthorized Access
+```json
+{
+  "success": false,
+  "error": "Unauthorized"
+}
+```
+
+### Testing Scenarios
+
+#### Scenario 1: Successful Deletion
+
+1. **Create a test landing page** using POST endpoint
+2. **Note the landing page ID** from creation response
+3. **Delete the landing page** using DELETE endpoint
+4. **Verify deletion** by attempting to GET the same ID (should return 404)
+5. **Check public URL** no longer accessible
+
+#### Scenario 2: Delete Non-Existent Landing Page
+
+1. **Use invalid or non-existent ID** in DELETE request
+2. **Verify 404 error response** with appropriate message
+3. **Confirm no side effects** on other landing pages
+
+#### Scenario 3: Company Isolation
+
+1. **Create landing page** in Company A
+2. **Attempt deletion** using Company B's header
+3. **Verify access denied** (landing page not found for Company B)
+4. **Confirm landing page** still exists for Company A
+
+#### Scenario 4: Cleanup Verification
+
+1. **Delete landing page** successfully
+2. **Check that slug is freed** for reuse
+3. **Verify no orphaned data** remains
+4. **Test creating new landing page** with same title
+
+### Best Practices
+
+✅ **Confirm Before Deletion** - Always verify the landing page exists and belongs to your company  
+✅ **Test Access Control** - Ensure users can only delete their company's landing pages  
+✅ **Document Impact** - Note which public URLs will become unavailable  
+✅ **Backup Strategy** - Consider archiving important landing pages before deletion  
+✅ **Monitor Usage** - Check analytics before deleting popular landing pages
+
+### Complete Landing Page Workflow
+
+#### Full CRUD Testing Sequence
+
+1. **CREATE**: Use POST `/landingPages` to create a new landing page
+2. **READ**: Use GET `/landingPages/:id` to retrieve the landing page
+3. **UPDATE**: Use PUT `/landingPages/:id` to modify the landing page
+4. **DELETE**: Use DELETE `/landingPages/:id` to remove the landing page
+
+#### Production Considerations
+
+- **Slug Management**: Understand that title changes regenerate slugs
+- **Reference Validation**: Event and category IDs are validated on updates
+- **Public Access**: Remember that public URLs become invalid after deletion
+- **Analytics Impact**: Views and conversions data is lost on deletion
+- **SEO Considerations**: Deleted landing pages may affect search rankings
+
+---
+
+## Testing the submitContactForm Function
+
+The `submitContactForm` function handles support requests from your contact form, stores them in Firestore, and sends email notifications to your support team.
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/submitContactForm`
+- **Method**: POST (Firebase Callable Function)
+- **Authentication**: REQUIRED (user must be logged in)
+- **Content-Type**: application/json
+
+### Request Body Structure
+
+```json
+{
+  "data": {
+    "name": "John Smith",
+    "email": "john.smith@company.com",
+    "companyName": "Tech Solutions Inc",
+    "companyId": "company_xyz789",
+    "subject": "technical",
+    "message": "I'm having trouble with the guest check-in process. When I try to check in a guest, the system shows an error message saying 'Invalid QR code' even though the code appears to be correct.",
+    "attachments": [
+      {
+        "name": "error-screenshot.png",
+        "type": "image/png",
+        "size": 1048576,
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+      }
+    ]
+  }
+}
+```
+
+### Field Descriptions
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | ✅ | Customer's full name (1-100 characters) |
+| `email` | string | ✅ | Valid email address |
+| `companyName` | string | ❌ | Company name (max 100 characters) |
+| `companyId` | string | ✅ | Company ID (required for authentication) |
+| `subject` | string | ✅ | Subject category (see valid values below) |
+| `message` | string | ✅ | Support message (10-2000 characters) |
+| `attachments` | array | ❌ | Array of image attachments (max 3) |
+
+### Valid Subject Values
+
+- `general` - General Question
+- `technical` - Technical Issue
+- `billing` - Billing & Subscription
+- `feature` - Feature Request
+- `bug` - Bug Report
+- `account` - Account Management
+- `integration` - Integration Support
+- `training` - Training & Onboarding
+- `other` - Other
+
+### Attachment Structure
+
+Each attachment object must contain:
+
+```json
+{
+  "name": "filename.png",
+  "type": "image/png",
+  "size": 1048576,
+  "data": "data:image/png;base64,BASE64_STRING_HERE"
+}
+```
+
+**Attachment Requirements:**
+- ✅ **Max 3 attachments** per request
+- ✅ **Image files only** (image/png, image/jpeg, image/gif, image/webp)
+- ✅ **Max 10MB per file**
+- ✅ **Base64 encoded** with data URL prefix
+
+### Test Examples
+
+#### Example 1: Basic Contact Form (No Attachments)
+
+```json
+{
+  "data": {
+    "name": "Sarah Johnson",
+    "email": "sarah@startup.com",
+    "companyName": "StartupCo",
+    "subject": "general",
+    "message": "How do I upgrade my subscription plan? I need access to more features for our growing team."
+  }
+}
+```
+
+#### Example 2: Technical Issue with Screenshot
+
+```json
+{
+  "data": {
+    "name": "Mike Chen",
+    "email": "mike.chen@restaurant.com",
+    "companyName": "Chen's Restaurant",
+    "subject": "technical",
+    "message": "The table layout is not displaying correctly on mobile devices. Tables appear overlapped and guests can't select their seats properly. This has been happening since yesterday.",
+    "attachments": [
+      {
+        "name": "mobile-bug.png",
+        "type": "image/png",
+        "size": 2097152,
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+      }
+    ]
+  }
+}
+```
+
+#### Example 3: Bug Report with Multiple Images
+
+```json
+{
+  "data": {
+    "name": "Alex Rodriguez",
+    "email": "alex@eventspace.com",
+    "companyName": "EventSpace Pro",
+    "subject": "bug",
+    "message": "QR code scanner is not working properly. It scans the code but doesn't check in the guest. I've attached screenshots showing the issue and what should happen.",
+    "attachments": [
+      {
+        "name": "qr-scan-error.png",
+        "type": "image/png",
+        "size": 1572864,
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+      },
+      {
+        "name": "expected-behavior.jpg",
+        "type": "image/jpeg",
+        "size": 786432,
+        "data": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwA/8A=="
+      },
+      {
+        "name": "console-log.png",
+        "type": "image/png",
+        "size": 524288,
+        "data": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+      }
+    ]
+  }
+}
+```
+
+### Expected Responses
+
+#### Success Response
+
+```json
+{
+  "success": true,
+  "message": "Your support request has been submitted successfully. Our support team will review it and respond directly to your email.",
+  "ticketId": "1K2L3M4N5P6Q"
+}
+```
+
+#### Validation Error Response
+
+```json
+{
+  "success": false,
+  "message": "Failed to submit support request: Validation error: \"email\" must be a valid email"
+}
+```
+
+#### File Size Error Response
+
+```json
+{
+  "success": false,
+  "message": "Failed to submit support request: Validation error: \"attachments[0].size\" must be less than or equal to 10485760"
+}
+```
+
+### What Happens When You Submit
+
+1. **✅ Data Validation** - All fields are validated according to schema
+2. **🎫 Ticket Creation** - Unique ticket ID generated (e.g., `1K2L3M4N5P6Q`)
+3. **💾 Database Storage** - Full ticket data saved to `support` collection
+4. **📧 Email Notification** - Support team receives email at `hello@guestbuddy.net`
+5. **📊 Email Tracking** - Email delivery status tracked in database
+
+### Database Structure
+
+The ticket is stored in Firestore at: `support/{ticketId}`
+
+```json
+{
+  "name": "John Smith",
+  "email": "john.smith@company.com",
+  "companyName": "Tech Solutions Inc",
+  "subject": "technical",
+  "subjectLabel": "Technical Issue",
+  "message": "I'm having trouble with...",
+  "attachmentCount": 1,
+  "attachments": [
+    {
+      "name": "error-screenshot.png",
+      "type": "image/png",
+      "size": 1048576,
+      "sizeFormatted": "1.0 MB"
+    }
+  ],
+  "ticketId": "1K2L3M4N5P6Q",
+  "status": "new",
+  "priority": "normal",
+  "assignedTo": null,
+  "createdAt": "2024-01-01T10:30:00Z",
+  "updatedAt": "2024-01-01T10:30:00Z",
+  "supportEmailSent": true,
+  "confirmationEmailSent": false,
+  "source": "contact_form",
+  "customerResponse": null,
+  "internalNotes": [],
+  "tags": ["technical"]
+}
+```
+
+### Email Notification
+
+Support team receives email with subject: `Support - #1K2L3M4N5P6Q - Technical Issue`
+
+**Email includes:**
+- 🎫 Ticket ID and subject
+- 👤 Customer contact information
+- 💬 Full message content
+- 📎 All image attachments
+- ⏰ Submission timestamp
+- 🏷️ Professional HTML formatting
+
+### Testing Scenarios
+
+#### Scenario 1: Valid Submission (No Attachments)
+
+1. **Submit basic contact form** with required fields only
+2. **Verify success response** with ticket ID
+3. **Check Firestore** for created document
+4. **Confirm email sent** to hello@guestbuddy.net
+5. **Validate email content** and formatting
+
+#### Scenario 2: Full Submission with Attachments
+
+1. **Prepare test images** (convert to base64)
+2. **Submit with all fields** and 2-3 attachments
+3. **Verify attachments received** in email
+4. **Check database** for attachment metadata
+5. **Confirm file sizes** calculated correctly
+
+#### Scenario 3: Validation Testing
+
+1. **Test missing required fields** (name, email, subject, message)
+2. **Test invalid email format** (missing @, invalid domain)
+3. **Test message too short** (< 10 characters)
+4. **Test message too long** (> 2000 characters)
+5. **Test invalid subject** (not in allowed list)
+
+#### Scenario 4: Attachment Validation
+
+1. **Test too many attachments** (> 3 files)
+2. **Test file too large** (> 10MB)
+3. **Test invalid file type** (PDF, TXT, etc.)
+4. **Test invalid base64** format
+5. **Test missing attachment fields**
+
+#### Scenario 5: Email Delivery Testing
+
+1. **Submit valid request**
+2. **Check spam folder** for email delivery
+3. **Verify email formatting** in different clients
+4. **Test attachment downloads** from email
+5. **Confirm subject line format**
+
+### Common Issues & Solutions
+
+#### ❌ Email Not Received
+- Check spam/junk folder
+- Verify `hello@guestbuddy.net` is correct
+- Check Firebase Functions logs
+- Verify SMTP configuration
+
+#### ❌ Attachment Too Large
+- Resize images before converting to base64
+- Use image compression tools
+- Check file size before encoding
+- Consider multiple smaller files
+
+#### ❌ Base64 Conversion Issues
+- Use proper data URL format: `data:image/png;base64,`
+- Ensure no line breaks in base64 string
+- Verify image file is valid before encoding
+- Test with small image first
+
+#### ❌ Validation Errors
+- Check all required fields are present
+- Verify email format is valid
+- Ensure subject is from allowed list
+- Check message length requirements
+
+### Best Practices
+
+✅ **Test with Real Data** - Use actual customer scenarios  
+✅ **Verify Email Delivery** - Always check email was received  
+✅ **Test All Subjects** - Try each subject category  
+✅ **Check Mobile Images** - Test with mobile screenshots  
+✅ **Monitor Database** - Verify tickets are stored correctly  
+✅ **Test Error Cases** - Ensure proper error handling  
+✅ **Performance Testing** - Test with maximum attachments
+
+### Production Considerations
+
+- **Rate Limiting**: Consider implementing rate limits to prevent spam
+- **File Storage**: Large attachments increase email size
+- **Email Deliverability**: Monitor bounce rates and spam scores
+- **Database Cleanup**: Plan for ticket archival strategy
+- **Response Workflow**: Set up support team processes
+- **Analytics**: Track ticket volume and response times

@@ -61,7 +61,29 @@ const landingPageSchemas = {
       textColor: Joi.string().optional().default("#ffffff"),
       backgroundColor: Joi.string().optional().default("#111827")
     }).optional()
-  })
+  }),
+  
+  updateLandingPage: Joi.object({
+    title: Joi.string().optional().min(1).max(200),
+    description: Joi.string().optional().allow("").max(1000),
+    eventId: Joi.string().optional().allow(""),
+    guestCategoryId: Joi.string().optional().allow(""),
+    showTickets: Joi.boolean().optional(),
+    enableGuestRegistration: Joi.boolean().optional(),
+    isPasswordProtected: Joi.boolean().optional(),
+    password: Joi.string().optional().allow("").when("isPasswordProtected", {
+      is: true,
+      then: Joi.string().required().min(1),
+      otherwise: Joi.string().optional().allow("")
+    }),
+    backgroundImageUrl: Joi.string().optional().allow("").uri(),
+    customStyles: Joi.object({
+      primaryColor: Joi.string().optional(),
+      textColor: Joi.string().optional(),
+      backgroundColor: Joi.string().optional()
+    }).optional(),
+    isActive: Joi.boolean().optional()
+  }).min(1) // At least one field must be provided for update
 };
 
 /**
@@ -316,6 +338,266 @@ app.get("/:id", async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching landing page:", error);
+    handleApiError(res, error);
+    return;
+  }
+});
+
+/**
+ * Update a landing page
+ */
+app.put("/:id", validateRequest(landingPageSchemas.updateLandingPage), async (req, res) => {
+  try {
+    const {id} = req.params;
+    const companyId = req.headers["x-company-id"] as string;
+    
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        error: "Company ID is required"
+      });
+    }
+
+    const data = req.body;
+    
+    // Get the existing landing page
+    const docRef = db.collection("companies")
+      .doc(companyId)
+      .collection("landingPages")
+      .doc(id);
+    const existingDoc = await docRef.get();
+    
+    if (!existingDoc.exists) {
+      return res.status(404).json({
+        success: false,
+        error: "Landing page not found"
+      });
+    }
+    
+    const existingData = existingDoc.data();
+    if (!existingData) {
+      return res.status(404).json({
+        success: false,
+        error: "Landing page data not found"
+      });
+    }
+    
+    // Validate that event exists if eventId is being updated
+    if (data.eventId !== undefined && data.eventId !== "") {
+      const eventRef = db.collection("companies")
+        .doc(companyId)
+        .collection("events")
+        .doc(data.eventId);
+      const eventDoc = await eventRef.get();
+      
+      if (!eventDoc.exists) {
+        return res.status(400).json({
+          success: false,
+          error: "Event not found"
+        });
+      }
+    }
+
+    // Validate that guest category exists if guestCategoryId is being updated
+    if (data.guestCategoryId !== undefined && data.guestCategoryId !== "") {
+      const categoryRef = db.collection("companies")
+        .doc(companyId)
+        .collection("categories")
+        .doc(data.guestCategoryId);
+      const categoryDoc = await categoryRef.get();
+      
+      if (!categoryDoc.exists) {
+        return res.status(400).json({
+          success: false,
+          error: "Guest category not found"
+        });
+      }
+    }
+
+    // Prepare the update data
+    const updateData: any = {
+      updatedAt: new Date().toISOString()
+    };
+
+    // Handle title change and slug regeneration
+    if (data.title && data.title !== existingData.title) {
+      // Get company data to access the company slug
+      const companyRef = db.collection("companies").doc(companyId);
+      const companyDoc = await companyRef.get();
+      
+      if (!companyDoc.exists) {
+        return res.status(400).json({
+          success: false,
+          error: "Company not found"
+        });
+      }
+      
+      const companyData = companyDoc.data();
+      const companySlug = companyData?.slug;
+      
+      if (!companySlug) {
+        return res.status(400).json({
+          success: false,
+          error: "Company slug not found"
+        });
+      }
+
+      // Generate a new slug for the updated title
+      const generateSlug = (title: string): string => {
+        return title
+          .toLowerCase()
+          .replace(/[^a-z0-9\s-]/g, '')
+          .trim()
+          .replace(/\s+/g, '-')
+          .replace(/-+/g, '-');
+      };
+
+      const titleSlug = generateSlug(data.title);
+      let newSlug = `${companySlug}/${titleSlug}`;
+      let counter = 1;
+      
+      // Ensure new slug is unique globally (excluding the current document)
+      while (true) {
+        const companiesSnapshot = await db.collection("companies").get();
+        let slugExists = false;
+        
+        for (const companyDocCheck of companiesSnapshot.docs) {
+          const existingPage = await db.collection("companies")
+            .doc(companyDocCheck.id)
+            .collection("landingPages")
+            .where("slug", "==", newSlug)
+            .get();
+          
+          // Check if the slug exists and it's not the current document
+          if (!existingPage.empty && existingPage.docs[0].id !== id) {
+            slugExists = true;
+            break;
+          }
+        }
+        
+        if (!slugExists) {
+          break;
+        }
+        
+        newSlug = `${companySlug}/${titleSlug}-${counter}`;
+        counter++;
+      }
+      
+      updateData.title = data.title;
+      updateData.slug = newSlug;
+    }
+
+    // Handle other field updates
+    if (data.description !== undefined) {
+      updateData.description = data.description;
+    }
+    
+    if (data.eventId !== undefined) {
+      updateData.eventId = data.eventId || null;
+    }
+    
+    if (data.guestCategoryId !== undefined) {
+      updateData.guestCategoryId = data.guestCategoryId || null;
+    }
+    
+    if (data.showTickets !== undefined) {
+      updateData.showTickets = data.showTickets;
+    }
+    
+    if (data.enableGuestRegistration !== undefined) {
+      updateData.enableGuestRegistration = data.enableGuestRegistration;
+    }
+    
+    if (data.isPasswordProtected !== undefined) {
+      updateData.isPasswordProtected = data.isPasswordProtected;
+      // Handle password field based on isPasswordProtected value
+      if (data.isPasswordProtected) {
+        updateData.password = data.password || existingData.password;
+      } else {
+        updateData.password = null;
+      }
+    } else if (data.password !== undefined) {
+      // If only password is being updated, keep existing isPasswordProtected value
+      if (existingData.isPasswordProtected) {
+        updateData.password = data.password;
+      }
+    }
+    
+    if (data.backgroundImageUrl !== undefined) {
+      updateData.backgroundImageUrl = data.backgroundImageUrl || null;
+    }
+    
+    if (data.customStyles !== undefined) {
+      // Merge with existing custom styles
+      updateData.customStyles = {
+        ...existingData.customStyles,
+        ...data.customStyles
+      };
+    }
+    
+    if (data.isActive !== undefined) {
+      updateData.isActive = data.isActive;
+    }
+    
+    // Update the document
+    await docRef.update(updateData);
+    
+    // Get the updated document
+    const updatedDoc = await docRef.get();
+    const updatedData = updatedDoc.data();
+    
+    return res.status(200).json({
+      success: true,
+      data: {
+        id: updatedDoc.id,
+        ...updatedData,
+        url: `${req.get('origin') || 'https://your-domain.com'}/landing/${updatedData?.slug}`
+      },
+      message: "Landing page updated successfully"
+    });
+  } catch (error) {
+    console.error("Error updating landing page:", error);
+    handleApiError(res, error);
+    return;
+  }
+});
+
+/**
+ * Delete a landing page
+ */
+app.delete("/:id", async (req, res) => {
+  try {
+    const {id} = req.params;
+    const companyId = req.headers["x-company-id"] as string;
+    
+    if (!companyId) {
+      return res.status(400).json({
+        success: false,
+        error: "Company ID is required"
+      });
+    }
+    
+    const docRef = db.collection("companies")
+      .doc(companyId)
+      .collection("landingPages")
+      .doc(id);
+    const doc = await docRef.get();
+    
+    if (!doc.exists) {
+      return res.status(404).json({
+        success: false,
+        error: "Landing page not found"
+      });
+    }
+    
+    await docRef.delete();
+    
+    return res.status(200).json({
+      success: true,
+      message: "Landing page deleted successfully"
+    });
+  } catch (error) {
+    console.error("Error deleting landing page:", error);
     handleApiError(res, error);
     return;
   }
