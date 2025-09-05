@@ -1,13 +1,10 @@
 import {onCall} from "firebase-functions/v2/https";
 import {getFirestore, FieldValue} from "firebase-admin/firestore";
-import {getStorage} from "firebase-admin/storage";
 import * as Joi from "joi";
 import {v4 as uuidv4} from "uuid";
-import * as QRCode from "qrcode";
 
-// Get Firestore and Storage instances
+// Get Firestore instance
 const db = getFirestore();
-const storage = getStorage();
 
 // Validation schema for creating club card
 const createClubCardSchema = Joi.object({
@@ -44,6 +41,12 @@ const updateClubCardSchema = Joi.object({
 
 // Validation schema for deleting club card
 const deleteClubCardSchema = Joi.object({
+  companyId: Joi.string().required(),
+  cardId: Joi.string().required(),
+});
+
+// Validation schema for checking card generation status
+const checkCardStatusSchema = Joi.object({
   companyId: Joi.string().required(),
   cardId: Joi.string().required(),
 });
@@ -93,6 +96,30 @@ interface DeleteClubCardData {
   companyId: string;
   cardId: string;
 }
+
+interface CheckCardStatusData {
+  companyId: string;
+  cardId: string;
+}
+
+/**
+ * Generate a single card item (without QR code image)
+ */
+function generateSingleCard(companyId: string, cardId: string, cardNumber: number, totalCards: number): CardItem {
+  const uniqueId = uuidv4();
+  
+  console.log(`Generated card ${cardNumber}/${totalCards}: ${uniqueId}`);
+  
+  return {
+    active: false,
+    guest: '',
+    nrUsed: 0,
+    qrCode: '', // Empty - will be generated later when needed
+    status: 'unused',
+    uniqueId: uniqueId,
+  };
+}
+
 
 /**
  * Create a new club card for a company
@@ -176,66 +203,14 @@ export const createClubCard = onCall({
     
     console.log(`Generating ${numberOfCards} QR codes for club card...`);
     
+    // Generate all cards instantly (no QR code images)
+    console.log(`Generating ${numberOfCards} card items...`);
+    
     for (let i = 0; i < numberOfCards; i++) {
-      const uniqueId = uuidv4();
-      
-      try {
-        // Generate QR code as data URL
-        const qrCodeDataUrl = await QRCode.toDataURL(uniqueId, {
-          errorCorrectionLevel: 'M',
-          type: 'image/png',
-          margin: 1,
-        });
-        
-        // Convert data URL to buffer
-        const base64Data = qrCodeDataUrl.replace(/^data:image\/png;base64,/, '');
-        const qrCodeBuffer = Buffer.from(base64Data, 'base64');
-        
-        // Upload to Firebase Storage
-        const qrCodeFileName = `companies/${data.companyId}/cards/${cardId}/qrcodes/${uniqueId}.png`;
-        const file = storage.bucket().file(qrCodeFileName);
-        
-        await file.save(qrCodeBuffer, {
-          metadata: {
-            contentType: 'image/png',
-            metadata: {
-              cardId: cardId,
-              uniqueId: uniqueId,
-              companyId: data.companyId,
-            }
-          }
-        });
-        
-        // Make the file publicly accessible
-        await file.makePublic();
-        
-        // Get the public URL
-        const publicUrl = `https://storage.googleapis.com/${storage.bucket().name}/${qrCodeFileName}`;
-        
-        items.push({
-          active: false,
-          guest: '',
-          nrUsed: 0,
-          qrCode: publicUrl,
-          status: 'unused',
-          uniqueId: uniqueId,
-        });
-        
-        console.log(`Generated QR code ${i + 1}/${numberOfCards}: ${uniqueId}`);
-        
-      } catch (error) {
-        console.error(`Error generating QR code ${i + 1}:`, error);
-        // Fallback to placeholder if QR generation fails
-        items.push({
-          active: false,
-          guest: '',
-          nrUsed: 0,
-          qrCode: `https://firebasestorage.googleapis.com/v0/b/guestbuddy-test-3b36d.firebasestorage.app/o/companies/${data.companyId}/cards/${cardId}/qrcodes/${uniqueId}.png?alt=media&token=placeholder`,
-          status: 'unused',
-          uniqueId: uniqueId,
-        });
-      }
+      items.push(generateSingleCard(data.companyId, cardId, i + 1, numberOfCards));
     }
+    
+    console.log(`Generated ${items.length} card items instantly`);
 
     // Create the club card document
     const cardData: any = {
@@ -467,66 +442,14 @@ export const updateClubCard = onCall({
       
       console.log(`Generating ${cardsToAdd} additional QR codes (current: ${currentItems.length}, target: ${targetCardCount})...`);
       
+      // Generate additional cards instantly (no QR code images)
+      console.log(`Generating ${cardsToAdd} additional card items...`);
+      
       for (let i = 0; i < cardsToAdd; i++) {
-        const uniqueId = uuidv4();
-        
-        try {
-          // Generate QR code as data URL
-          const qrCodeDataUrl = await QRCode.toDataURL(uniqueId, {
-            errorCorrectionLevel: 'M',
-            type: 'image/png',
-            margin: 1,
-          });
-          
-          // Convert data URL to buffer
-          const base64Data = qrCodeDataUrl.replace(/^data:image\/png;base64,/, '');
-          const qrCodeBuffer = Buffer.from(base64Data, 'base64');
-          
-          // Upload to Firebase Storage
-          const qrCodeFileName = `companies/${data.companyId}/cards/${data.cardId}/qrcodes/${uniqueId}.png`;
-          const file = storage.bucket().file(qrCodeFileName);
-          
-          await file.save(qrCodeBuffer, {
-            metadata: {
-              contentType: 'image/png',
-              metadata: {
-                cardId: data.cardId,
-                uniqueId: uniqueId,
-                companyId: data.companyId,
-              }
-            }
-          });
-          
-          // Make the file publicly accessible
-          await file.makePublic();
-          
-          // Get the public URL
-          const publicUrl = `https://storage.googleapis.com/${storage.bucket().name}/${qrCodeFileName}`;
-          
-          additionalCards.push({
-            active: false,
-            guest: '',
-            nrUsed: 0,
-            qrCode: publicUrl,
-            status: 'unused',
-            uniqueId: uniqueId,
-          });
-          
-          console.log(`Generated additional QR code ${i + 1}/${cardsToAdd}: ${uniqueId}`);
-          
-        } catch (error) {
-          console.error(`Error generating additional QR code ${i + 1}:`, error);
-          // Fallback to placeholder if QR generation fails
-          additionalCards.push({
-            active: false,
-            guest: '',
-            nrUsed: 0,
-            qrCode: `https://firebasestorage.googleapis.com/v0/b/guestbuddy-test-3b36d.firebasestorage.app/o/companies/${data.companyId}/cards/${data.cardId}/qrcodes/${uniqueId}.png?alt=media&token=placeholder`,
-            status: 'unused',
-            uniqueId: uniqueId,
-          });
-        }
+        additionalCards.push(generateSingleCard(data.companyId, data.cardId, currentItems.length + i + 1, targetCardCount));
       }
+      
+      console.log(`Generated ${additionalCards.length} additional card items instantly`);
       
       // Add new cards to existing items
       const updatedItems = [...currentItems, ...additionalCards];
@@ -706,55 +629,8 @@ export const deleteClubCard = onCall({
       };
     }
 
-    // Clean up QR code images from Firebase Storage
-    console.log(`Cleaning up ${itemsCount} QR code images from Firebase Storage...`);
-    let deletedFilesCount = 0;
-    
-    try {
-      for (const item of items) {
-        if (item.uniqueId && item.qrCode) {
-          try {
-            // Extract the file path from the QR code URL
-            const qrCodeUrl = item.qrCode;
-            let filePath = '';
-            
-            // Handle different URL formats
-            if (qrCodeUrl.includes('storage.googleapis.com')) {
-              // URL format: https://storage.googleapis.com/bucket-name/path/to/file
-              const urlParts = qrCodeUrl.split('/');
-              const bucketNameIndex = urlParts.findIndex((part: string) => part === 'storage.googleapis.com') + 1;
-              if (bucketNameIndex < urlParts.length) {
-                filePath = urlParts.slice(bucketNameIndex + 1).join('/');
-              }
-            } else if (qrCodeUrl.includes('firebasestorage.googleapis.com')) {
-              // URL format: https://firebasestorage.googleapis.com/v0/b/bucket-name/o/path%2Fto%2Ffile?alt=media&token=...
-              const match = qrCodeUrl.match(/\/o\/([^?]+)/);
-              if (match) {
-                filePath = decodeURIComponent(match[1]);
-              }
-            }
-            
-            if (filePath) {
-              // Delete the QR code file from Firebase Storage
-              const file = storage.bucket().file(filePath);
-              await file.delete();
-              deletedFilesCount++;
-              console.log(`Deleted QR code file: ${filePath}`);
-            } else {
-              console.log(`Could not extract file path from URL: ${qrCodeUrl}`);
-            }
-          } catch (fileError) {
-            console.error(`Error deleting QR code file for item ${item.uniqueId}:`, fileError);
-            // Continue with other files even if one fails
-          }
-        }
-      }
-      
-      console.log(`Successfully deleted ${deletedFilesCount} QR code files from Firebase Storage`);
-    } catch (storageError) {
-      console.error('Error during Firebase Storage cleanup:', storageError);
-      // Continue with deletion even if storage cleanup fails
-    }
+    // No need to clean up QR code images since they're not stored in Firebase Storage
+    console.log(`No QR code images to clean up (QR codes are generated on-demand)`);
 
     // Delete the card document
     await cardRef.delete();
@@ -782,7 +658,7 @@ export const deleteClubCard = onCall({
         deletedBy: userName,
         deletedAt: new Date().toISOString(),
         itemsDeleted: itemsCount,
-        qrCodeFilesDeleted: deletedFilesCount,
+        qrCodeFilesDeleted: 0, // No QR code files stored
       }
     };
 
@@ -792,6 +668,114 @@ export const deleteClubCard = onCall({
     return {
       success: false,
       error: `Failed to delete club card: ${error.message}`,
+    };
+  }
+});
+
+/**
+ * Check the generation status of a club card
+ * This function:
+ * 1. Validates the card exists
+ * 2. Returns the current generation status and progress
+ */
+export const checkCardGenerationStatus = onCall({
+  enforceAppCheck: false,
+}, async (request) => {
+  try {
+    console.log('checkCardGenerationStatus called with request:', {
+      hasAuth: !!request.auth,
+      hasData: !!request.data,
+      dataKeys: request.data ? Object.keys(request.data) : [],
+      rawData: request.data
+    });
+
+    // Check if caller is authenticated
+    if (!request.auth) {
+      return {
+        success: false,
+        error: "Unauthorized",
+      };
+    }
+
+    // Extract data from request - handle both direct data and wrapped data
+    let data: CheckCardStatusData;
+    if (request.data && request.data.data) {
+      // Data is wrapped in a "data" property
+      data = request.data.data as CheckCardStatusData;
+      console.log('Using wrapped data:', data);
+    } else {
+      // Data is at root level
+      data = request.data as CheckCardStatusData;
+      console.log('Using root data:', data);
+    }
+
+    // Validate input data
+    const {error} = checkCardStatusSchema.validate(data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Check if company exists
+    const companyRef = db.collection('companies').doc(data.companyId);
+    const companyDoc = await companyRef.get();
+
+    if (!companyDoc.exists) {
+      return {
+        success: false,
+        error: "Company not found",
+      };
+    }
+
+    // Check if card exists
+    const cardRef = db.collection('companies')
+      .doc(data.companyId)
+      .collection('cards')
+      .doc(data.cardId);
+
+    const cardDoc = await cardRef.get();
+
+    if (!cardDoc.exists) {
+      return {
+        success: false,
+        error: "Club card not found",
+      };
+    }
+
+    const cardData = cardDoc.data();
+    const items = cardData?.items || [];
+    const itemsCount = items.length;
+    const generationStatus = cardData?.generationStatus || 'completed';
+    const totalCardsRequested = cardData?.totalCardsRequested || itemsCount;
+    const cardsGenerated = cardData?.cardsGenerated || itemsCount;
+
+    return {
+      success: true,
+      message: "Card generation status retrieved successfully",
+      data: {
+        cardId: data.cardId,
+        companyId: data.companyId,
+        cardTitle: cardData?.title || '',
+        generationStatus: generationStatus,
+        totalCardsRequested: totalCardsRequested,
+        cardsGenerated: cardsGenerated,
+        itemsCount: itemsCount,
+        progress: totalCardsRequested > 0 ? Math.round((cardsGenerated / totalCardsRequested) * 100) : 100,
+        lastUpdated: cardData?.lastUpdated,
+        completedAt: cardData?.completedAt,
+        failedAt: cardData?.failedAt,
+        error: cardData?.error,
+      }
+    };
+
+  } catch (error: any) {
+    console.error("Error checking card generation status:", error);
+    
+    return {
+      success: false,
+      error: `Failed to check card generation status: ${error.message}`,
     };
   }
 });

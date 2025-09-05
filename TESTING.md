@@ -27,8 +27,8 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 21. **editUserInCompany** - Edit user information and change their role within a company
 22. **removeUserFromCompany** - Remove users from a company and manage their business mode
 23. **createEventTicket** - Create tickets for an event with auto-generated UUID and ticket summary management
-24. **createClubCard** - Create club cards with auto-generated QR codes and Firebase Storage uploads
-25. **updateClubCard** - Update club card details and generate additional QR codes when needed
+24. **createClubCard** - Create club cards with unique IDs (QR codes generated on-demand)
+25. **updateClubCard** - Update club card details and generate additional card items when needed
 26. **deleteClubCard** - Delete club cards with validation that they're not in use
 27. **createTableLayout** - Create table layouts from canvas objects with rotation support
 28. **updateTableLayout** - Update existing table layouts with partial field updates and rotation support
@@ -3281,12 +3281,11 @@ const ticketData = {
 
 1. **Validation**: Checks if company exists
 2. **UUID Generation**: Creates unique card ID (format: `1092ecce-5c4a-4d96-87e2-8c0adaad74e6`)
-3. **QR Code Generation**: For each card item:
-   - Generates unique UUID
-   - Creates QR code image
-   - Uploads to Firebase Storage
-   - Makes file publicly accessible
-4. **Database Creation**: Saves card with items array containing all generated cards
+3. **Card Item Generation**: For each card item:
+   - Generates unique UUID for the card item
+   - Creates card item with empty QR code field
+   - QR codes will be generated later when cards are distributed
+4. **Database Creation**: Saves card with items array containing all generated card items
 5. **Activity Logging**: Creates log entry with creation details
 
 ### Database Structure
@@ -3309,7 +3308,7 @@ const ticketData = {
       "active": false,
       "guest": "",
       "nrUsed": 0,
-      "qrCode": "https://storage.googleapis.com/your-bucket/companies/companyId/cards/cardId/qrcodes/uniqueId.png",
+      "qrCode": "", // Empty - QR codes generated on-demand when cards are distributed
       "status": "unused",
       "uniqueId": "1604ec22-df04-49ac-951e-fe84d550f0a8"
     }
@@ -3322,10 +3321,11 @@ const ticketData = {
 ### Key Features
 
 ✅ **Auto-Generated UUIDs** - Both card ID and individual card unique IDs  
-✅ **Server-Side QR Generation** - Creates PNG QR codes automatically  
-✅ **Firebase Storage Integration** - Uploads and makes QR codes public  
+✅ **Instant Generation** - Creates 1000+ cards in seconds (no QR code images)  
+✅ **Unique ID System** - Each card gets a unique UUID for later QR code generation  
 ✅ **Flexible Card Count** - Generate 1-1000 cards per request  
-✅ **Immediate Availability** - QR codes ready to scan right away  
+✅ **On-Demand QR Codes** - QR codes generated when cards are actually distributed  
+✅ **No Storage Costs** - No Firebase Storage usage during creation  
 
 ## Testing the updateClubCard Function
 
@@ -3446,10 +3446,10 @@ const ticketData = {
 ### Key Features
 
 ✅ **Partial Updates** - Only update fields you specify  
-✅ **Automatic Card Scaling** - Generate more cards when needed  
-✅ **QR Code Generation** - Creates additional codes seamlessly  
+✅ **Automatic Card Scaling** - Generate more card items when needed  
+✅ **Instant Card Generation** - Creates additional card items seamlessly  
 ✅ **Change Tracking** - Detailed audit trail of all modifications  
-✅ **Smart Detection** - Knows exactly how many new cards needed  
+✅ **Smart Detection** - Knows exactly how many new card items needed  
 
 ## Testing the deleteClubCard Function
 
@@ -3512,14 +3512,14 @@ const ticketData = {
 1. **Validation**: Checks if card exists and company is valid
 2. **Usage Check**: Verifies card is not used in any events
 3. **Deletion**: Removes card document and all associated data
-4. **Storage Cleanup**: Removes QR code images from Firebase Storage
+4. **No Storage Cleanup**: No QR code images to clean up (generated on-demand)
 5. **Logging**: Creates deletion audit trail
 
 ### Key Features
 
 ✅ **Safety Validation** - Prevents deletion of cards in use  
-✅ **Complete Cleanup** - Removes all associated data and files  
-✅ **Storage Management** - Cleans up Firebase Storage files  
+✅ **Complete Cleanup** - Removes all associated data  
+✅ **No Storage Cleanup** - No Firebase Storage files to clean up (QR codes generated on-demand)  
 ✅ **Audit Trail** - Logs all deletion actions  
 ✅ **Event Protection** - Safeguards against data loss  
 
@@ -3550,7 +3550,15 @@ const ticketData = {
 ✅ **Regular Updates** - Keep card information current  
 ✅ **Monitor Usage** - Track which cards are active  
 ✅ **Safe Deletion** - Always verify cards aren't in use  
-✅ **Backup Strategy** - Consider archiving before deletion
+✅ **QR Code Generation** - Generate QR codes when cards are actually distributed to users  
+✅ **No Storage Costs** - Cards created without Firebase Storage usage
+
+### Important Notes
+
+🔄 **New Process**: Club cards are now created without QR code images in storage  
+🔄 **On-Demand QR Codes**: QR codes are generated later when cards are distributed  
+🔄 **Instant Creation**: 1000+ cards can be created in seconds  
+🔄 **Cost Efficient**: No Firebase Storage costs during card creation
 
 ## Testing the createTableLayout Function
 

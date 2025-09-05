@@ -54,6 +54,8 @@ export const removeEventTicket = eventsApi.removeEventTicket;
 export const createClubCard = cardsApi.createClubCard;
 export const updateClubCard = cardsApi.updateClubCard;
 export const deleteClubCard = cardsApi.deleteClubCard;
+export const checkCardGenerationStatus = cardsApi.checkCardGenerationStatus;
+export const generateClubCards = cardsApi.generateClubCards;
 
 // Layouts API
 export const createTableLayout = layoutsApi.createTableLayout;
