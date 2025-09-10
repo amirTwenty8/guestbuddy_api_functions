@@ -893,7 +893,7 @@ if (checkResult.result.requiresUserChoice) {
   "data": {
     "companyId": "your-company-id",
     "eventId": "your-event-id",
-    "layoutName": "VIP",
+    "layoutId": "VIP",
     "tableName": "101",
     "userId": "user-id-optional",
     "name": "John Doe",
@@ -916,7 +916,7 @@ if (checkResult.result.requiresUserChoice) {
 
 ### Validation Rules
 
-- `companyId`, `eventId`, `layoutName`, `tableName` are required
+- `companyId`, `eventId`, `layoutId`, `tableName` are required
 - `userId` is optional (required for spending tracking)
 - All other fields are optional - only send the fields you want to update
 - `action` defaults to "updated" if not provided
@@ -930,7 +930,7 @@ if (checkResult.result.requiresUserChoice) {
     "message": "Table updated successfully",
     "data": {
       "tableName": "101",
-      "layoutName": "VIP",
+      "layoutId": "VIP",
       "changes": {
         "name": "John Doe",
         "tableLimit": 20000,
@@ -974,7 +974,7 @@ You can update only specific fields:
   "data": {
     "companyId": "your-company-id",
     "eventId": "your-event-id",
-    "layoutName": "VIP",
+    "layoutId": "VIP",
     "tableName": "101",
     "userId": "user-id",
     "tableSpent": 25000,
@@ -1002,7 +1002,7 @@ This will only update the spent amount and create a log entry with the action "s
   "data": {
     "companyId": "your-company-id",
     "eventId": "your-event-id",
-    "layoutName": "VIP",
+    "layoutId": "VIP",
     "tableName": "101"
   }
 }
@@ -1010,7 +1010,7 @@ This will only update the spent amount and create a log entry with the action "s
 
 ### Validation Rules
 
-- `companyId`, `eventId`, `layoutName`, `tableName` are required
+- `companyId`, `eventId`, `layoutId`, `tableName` are required
 - The table must be currently reserved (have a userId)
 
 ### Expected Response
@@ -1022,7 +1022,7 @@ This will only update the spent amount and create a log entry with the action "s
     "message": "Reservation cancelled successfully",
     "data": {
       "tableName": "101",
-      "layoutName": "VIP",
+      "layoutId": "VIP",
       "cancelledBy": "Amir Company Ehsani",
       "cancelledAt": "2025-08-19T15:30:00.000Z",
       "removedData": {
@@ -1083,7 +1083,7 @@ This will only update the spent amount and create a log entry with the action "s
   "data": {
     "companyId": "your-company-id",
     "eventId": "your-event-id",
-    "layoutName": "VIP",
+    "layoutId": "VIP",
     "tableName": "101"
   }
 }
@@ -1091,7 +1091,7 @@ This will only update the spent amount and create a log entry with the action "s
 
 ### Validation Rules
 
-- `companyId`, `eventId`, `layoutName`, `tableName` are required
+- `companyId`, `eventId`, `layoutId`, `tableName` are required
 - The table must be currently reserved (have a userId)
 
 ### Expected Response
@@ -1103,7 +1103,7 @@ This will only update the spent amount and create a log entry with the action "s
     "message": "Table resold successfully",
     "data": {
       "tableName": "101",
-      "layoutName": "VIP",
+      "layoutId": "VIP",
       "resoldBy": "Amir Company Ehsani",
       "resoldAt": "2025-08-19T15:30:00.000Z",
       "removedData": {

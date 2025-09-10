@@ -49,7 +49,7 @@ interface SendSmsNotificationData {
  * This function handles:
  * 1. Sending custom SMS messages provided by the user
  * 2. Scheduling reminders for future delivery
- * 3. Logging SMS notifications
+ * 3. Storing SMS notification records in the database
  * 
  * The message content is provided by the user to allow company-specific customization
  */
@@ -77,9 +77,6 @@ export const sendSmsNotification = onCall({
       };
     }
 
-    // Get current user info for logging
-    const currentUser = request.auth;
-    const userName = `${currentUser.token.name || 'Unknown User'}`;
 
     // Use the custom message provided by the user
     const message = data.message;
@@ -218,30 +215,6 @@ export const sendSmsNotification = onCall({
       }
     }
 
-    // Log the SMS action
-    const logData: any = {
-      tableName: data.tableName,
-      action: `sms_${data.notificationType}`,
-      userName: userName,
-      timestamp: FieldValue.serverTimestamp(),
-      details: {
-        phoneNumber: data.phoneNumber,
-        guestName: data.guestName,
-        message: message,
-      }
-    };
-
-    // Only add scheduledFor if it has a value
-    if (scheduledFor) {
-      logData.details.scheduledFor = scheduledFor;
-    }
-
-    await db.collection('companies')
-      .doc(data.companyId)
-      .collection('events')
-      .doc(data.eventId)
-      .collection('tableLogs')
-      .add(logData);
 
     // Get the SMS document data for response
     const smsDoc = await smsRef.get();

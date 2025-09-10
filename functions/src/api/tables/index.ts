@@ -582,6 +582,81 @@ interface UpdateTableData {
 }
 
 /**
+ * Update table summary statistics incrementally based on changes made to a specific table
+ * @param companyId Company ID
+ * @param eventId Event ID
+ * @param changesMap Object containing the changes made to the table
+ * @param originalTable The original table data before changes
+ */
+async function updateTableSummaryIncremental(
+  companyId: string, 
+  eventId: string, 
+  changesMap: Record<string, any>, 
+  originalTable: any
+) {
+  try {
+    const tableListsRef = db.collection('companies')
+      .doc(companyId)
+      .collection('events')
+      .doc(eventId)
+      .collection('table_lists');
+
+    const tableSummaryRef = tableListsRef.doc('tableSummary');
+    
+    // Calculate incremental changes
+    const increments: Record<string, number> = {};
+    
+    // Handle booking status changes
+    const wasBooked = originalTable.name || originalTable.tableBookedBy;
+    const isNowBooked = changesMap.name !== undefined ? changesMap.name : (changesMap.tableBookedBy !== undefined ? changesMap.tableBookedBy : wasBooked);
+    
+    if (!wasBooked && isNowBooked) {
+      increments.totalBooked = 1; // Table became booked
+    } else if (wasBooked && !isNowBooked) {
+      increments.totalBooked = -1; // Table became unbooked
+    }
+    
+    // Handle numeric field changes
+    const numericFields = ['tableCheckedIn', 'nrOfGuests', 'tableLimit', 'tableSpent'];
+    const summaryFields = ['totalCheckedIn', 'totalGuests', 'totalTableLimit', 'totalTableSpent'];
+    
+    numericFields.forEach((field, index) => {
+      if (changesMap[field] !== undefined) {
+        const oldValue = originalTable[field] || 0;
+        const newValue = changesMap[field] || 0;
+        const difference = newValue - oldValue;
+        
+        if (difference !== 0) {
+          increments[summaryFields[index]] = difference;
+        }
+      }
+    });
+    
+    // Only update if there are actual changes
+    if (Object.keys(increments).length > 0) {
+      const updateData: Record<string, any> = {
+        lastUpdated: FieldValue.serverTimestamp(),
+      };
+      
+      // Add incremental updates
+      Object.entries(increments).forEach(([field, increment]) => {
+        updateData[field] = FieldValue.increment(increment);
+      });
+      
+      await tableSummaryRef.update(updateData);
+      
+      console.log('Table summary updated incrementally:', increments);
+    } else {
+      console.log('No summary changes needed');
+    }
+
+  } catch (error) {
+    console.error('Error updating table summary incrementally:', error);
+    // Don't throw error - summary update failure shouldn't break the main function
+  }
+}
+
+/**
  * Update table summary statistics based on ALL layouts in the event
  * @param companyId Company ID
  * @param eventId Event ID
@@ -813,8 +888,8 @@ export const updateTable = onCall({
       items: tables,
     });
 
-    // Update table summary statistics
-    await updateTableSummary(data.companyId, data.eventId);
+    // Update table summary statistics incrementally based on changes
+    await updateTableSummaryIncremental(data.companyId, data.eventId, changesMap, table);
 
     // Update user spending information if userId is provided and spent amount changed
     if (data.userId && changesMap.tableSpent !== undefined) {
