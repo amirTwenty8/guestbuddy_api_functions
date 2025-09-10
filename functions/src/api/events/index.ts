@@ -8,7 +8,6 @@ const db = getFirestore();
 
 // Validation schema for event creation
 const createEventSchema = Joi.object({
-  eventId: Joi.string().optional(), // Make eventId optional, we'll generate one if not provided
   eventName: Joi.string().required().min(1).max(100),
   startDateTime: Joi.date().iso().required(),
   endDateTime: Joi.date().iso().required(),
@@ -104,7 +103,7 @@ function generateRecurringEventDates(
 /**
  * Create a new event with all related data
  * This function handles:
- * 1. Creating the event document
+ * 1. Creating the event document with auto-generated UUID
  * 2. Creating table lists for each layout (if tableLayouts provided)
  * 3. Creating event tables with logs (if layouts exist)
  * 4. Updating table summary
@@ -112,6 +111,7 @@ function generateRecurringEventDates(
  * 
  * All operations are performed in a single transaction for data consistency
  * 
+ * Event IDs are always auto-generated as UUIDs and cannot be provided
  * Optional fields: tableLayouts, categories, clubCardIds, eventGenre
  * Now accepts IDs instead of names for better data integrity
  */
@@ -138,7 +138,6 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
 
     // Validate request data
     const {
-      eventId: providedEventId,
       eventName,
       startDateTime,
       endDateTime,
@@ -160,7 +159,7 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
       };
     }
 
-    // Note: Event IDs are now generated per event in the eventsToCreate array
+    // Note: Event IDs are always auto-generated as UUIDs for each event
 
     // Check if company exists
     const companyRef = db.collection('companies').doc(companyId);
@@ -218,7 +217,7 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
       
       // Create event entries for each recurring date
       eventsToCreate = recurringDates.map((dateInfo, index) => ({
-        eventId: providedEventId ? `${providedEventId}_${index}` : uuidv4(),
+        eventId: uuidv4(),
         startDateTime: dateInfo.startDateTime,
         endDateTime: dateInfo.endDateTime,
         eventName: `${eventName} (${dateInfo.startDateTime.toDate().toLocaleDateString()})`,
@@ -226,7 +225,7 @@ export const createEvent = onCall({enforceAppCheck: false}, async (request) => {
     } else {
       // Single event
       eventsToCreate = [{
-        eventId: providedEventId || uuidv4(),
+        eventId: uuidv4(),
         startDateTime: Timestamp.fromMillis(startDate.getTime()),
         endDateTime: Timestamp.fromMillis(endDate.getTime()),
         eventName: eventName,

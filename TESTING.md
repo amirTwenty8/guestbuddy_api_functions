@@ -4,7 +4,7 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 
 ## Available Functions
 
-1. **createEvent** - Create a new event with table layouts, categories, club cards, and genres (supports single and recurring events)
+1. **createEvent** - Create a new event with auto-generated UUID, table layouts, categories, club cards, and genres (supports single and recurring events)
 2. **updateEvent** - Update an existing event with table layout changes
 3. **deleteEvent** - Delete an event and all its subcollections
 4. **addGuest** - Add a guest to an event's guest list with summary updates
@@ -103,7 +103,6 @@ The response will contain an `idToken` field with your authentication token.
 ```json
 {
   "data": {
-    "eventId": "test-event-123",
     "eventName": "Test Event",
     "startDateTime": "2023-08-01T18:00:00Z",
     "endDateTime": "2023-08-01T23:00:00Z",
@@ -148,6 +147,7 @@ The response will contain an `idToken` field with your authentication token.
 > - All table layouts, guest lists, and summaries are created for each individual event
 
 > **Important**: 
+> - **Event ID**: Event IDs are always auto-generated as UUIDs and cannot be provided in the request
 > - Replace `YOUR_COMPANY_ID` with a valid company ID from your Firestore database
 > - All IDs in `tableLayouts`, `categories`, `clubCardIds`, and `eventGenre` must be valid document IDs from their respective collections
 > - The function will fetch the names from these documents and store both IDs and names in the event
@@ -164,7 +164,7 @@ The response will contain an `idToken` field with your authentication token.
       "eventsCreated": 1,
       "events": [
         {
-          "eventId": "test-event-123",
+          "eventId": "auto-generated-uuid-1234",
           "eventName": "Test Event",
           "startDateTime": "2023-08-01T18:00:00Z",
           "endDateTime": "2023-08-01T23:00:00Z"
@@ -203,13 +203,13 @@ The response will contain an `idToken` field with your authentication token.
       "eventsCreated": 104,
       "events": [
         {
-          "eventId": "uuid-1",
+          "eventId": "auto-generated-uuid-5678",
           "eventName": "Weekly Club Night (1/5/2024)",
           "startDateTime": "2024-01-05T20:00:00Z",
           "endDateTime": "2024-01-06T02:00:00Z"
         },
         {
-          "eventId": "uuid-2",
+          "eventId": "auto-generated-uuid-9012",
           "eventName": "Weekly Club Night (1/6/2024)",
           "startDateTime": "2024-01-06T20:00:00Z",
           "endDateTime": "2024-01-07T02:00:00Z"
