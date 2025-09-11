@@ -32,7 +32,7 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 26. **deleteClubCard** - Delete club cards with validation that they're not in use
 27. **createTableLayout** - Create table layouts from canvas objects with rotation support
 28. **updateTableLayout** - Update existing table layouts with partial field updates and rotation support
-29. **deleteTableLayout** - Delete table layouts with safety validation to prevent deletion of layouts in use
+29. **deleteTableLayout** - Archive table layouts (soft delete) to preserve data integrity while hiding from views
 30. **createLandingPage** - Create custom landing pages for events with password protection and styling
 31. **updateLandingPage** - Update existing landing pages with automatic slug regeneration and validation
 32. **deleteLandingPage** - Delete landing pages with proper cleanup
@@ -4122,7 +4122,7 @@ const ticketData = {
 ✅ **Monitor Activity Logs** - Track all layout changes  
 ✅ **Plan Updates** - Consider impact on existing events using the layout
 
-## Testing the deleteTableLayout Function
+## Testing the deleteTableLayout Function (Archive System)
 
 ### Request Details
 
@@ -4147,7 +4147,7 @@ const ticketData = {
 
 - `companyId` and `layoutId` are required
 - Layout must exist in the specified company
-- Layout cannot be deleted if it's currently used in any events
+- Layout cannot be archived if it's already archived
 
 ### Expected Response (Success)
 
@@ -4155,15 +4155,16 @@ const ticketData = {
 {
   "result": {
     "success": true,
-    "message": "Table layout deleted successfully",
+    "message": "Table layout archived successfully",
     "data": {
       "layoutId": "existing-layout-id",
       "layoutName": "Main Area",
       "itemsCount": 5,
       "tablesCount": 3,
       "objectsCount": 2,
-      "deletedBy": "Amir Company Ehsani",
-      "deletedAt": "2025-09-03T11:00:00.000Z"
+      "archived": true,
+      "archivedBy": "Amir Company Ehsani",
+      "archivedAt": "2025-09-03T11:00:00.000Z"
     }
   }
 }
@@ -4172,21 +4173,21 @@ const ticketData = {
 ### What the Function Does
 
 1. **Validation**: Checks if company and layout exist
-2. **Usage Check**: Queries all events to see if layout is currently in use
-3. **Safety Prevention**: Prevents deletion if layout is used in any events
-4. **Deletion**: Removes layout document from Firestore
-5. **Activity Logging**: Creates detailed log entry with layout statistics
-6. **Statistics**: Returns counts of deleted items
+2. **Archive Check**: Verifies layout is not already archived
+3. **Soft Delete**: Sets `archived: true` instead of deleting the document
+4. **Metadata Update**: Adds `archivedAt`, `archivedBy`, and `updatedAt` timestamps
+5. **Activity Logging**: Creates detailed log entry with archive action
+6. **Data Preservation**: Maintains all layout data and dependencies
 
 ### Key Features
 
-✅ **Safety Validation** - Prevents deletion of layouts in use  
-✅ **Event Usage Check** - Queries all events for layout usage  
-✅ **Detailed Error Messages** - Shows which events are using the layout  
-✅ **Complete Deletion** - Removes layout and logs action  
-✅ **Audit Trail** - Comprehensive logging with layout details  
-✅ **Statistics** - Returns counts of deleted items  
-✅ **User Context** - Tracks who deleted the layout  
+✅ **Soft Delete/Archive** - Sets archived flag instead of deleting data  
+✅ **Data Preservation** - Maintains all layout data and dependencies  
+✅ **Archive Prevention** - Prevents double-archiving of layouts  
+✅ **Metadata Tracking** - Records archive timestamp and user  
+✅ **Activity Logging** - Comprehensive logging with archive action  
+✅ **Statistics** - Returns counts of archived items  
+✅ **Recovery Ready** - Layouts can be unarchived using updateTableLayout  
 
 ### Error Responses
 
@@ -4210,22 +4211,12 @@ const ticketData = {
 }
 ```
 
-**Layout in use (single event):**
+**Layout already archived:**
 ```json
 {
   "result": {
     "success": false,
-    "error": "Cannot delete layout. It is currently used in 1 event(s): VIP Night"
-  }
-}
-```
-
-**Layout in use (multiple events):**
-```json
-{
-  "result": {
-    "success": false,
-    "error": "Cannot delete layout. It is currently used in 3 event(s): VIP Night, Summer Party, New Year Event"
+    "error": "Layout is already archived"
   }
 }
 ```
@@ -4240,45 +4231,52 @@ const ticketData = {
 }
 ```
 
-### Table Layout Deletion Workflow Examples
+### Table Layout Archive Workflow Examples
 
-### Scenario 1: Delete Unused Layout
+### Scenario 1: Archive Layout
 
-1. **Check layout usage** - Verify layout is not used in any events
-2. **Delete layout** safely with `deleteTableLayout`
-3. **Confirm deletion** - Layout removed and logged
+1. **Archive layout** with `deleteTableLayout`
+2. **Confirm archive** - Layout marked as archived and logged
+3. **Layout hidden** - No longer appears in active layout lists
 
-### Scenario 2: Attempt to Delete Used Layout
+### Scenario 2: Attempt to Archive Already Archived Layout
 
-1. **Try to delete layout** that's used in events
-2. **Receive error message** with event names
-3. **Remove from events first** - Update events to not use the layout
-4. **Then delete layout** safely
+1. **Try to archive layout** that's already archived
+2. **Receive error message** indicating it's already archived
+3. **Check layout status** before attempting archive
 
 ### Scenario 3: Clean Up Old Layouts
 
-1. **Identify unused layouts** - Check which layouts are not in use
-2. **Delete multiple layouts** one by one
-3. **Monitor activity logs** for deletion tracking
+1. **Identify unused layouts** - Mark old layouts as archived
+2. **Archive multiple layouts** one by one
+3. **Monitor activity logs** for archive tracking
+
+### Scenario 4: Recover Archived Layout
+
+1. **Find archived layout** using layout ID
+2. **Use updateTableLayout** with `{"archived": false}`
+3. **Layout becomes active** again and appears in lists
 
 ### Best Practices
 
-✅ **Check Usage First** - Verify layout is not used in events before deletion  
-✅ **Update Events First** - Remove layout from events before deleting  
-✅ **Backup Important Layouts** - Keep copies of layouts you might need later  
-✅ **Monitor Activity Logs** - Track all layout deletions  
-✅ **Test After Deletion** - Verify no broken references remain  
-✅ **Plan Deletions** - Consider impact on existing events  
+✅ **Archive Instead of Delete** - Use archive system to preserve data integrity  
+✅ **Check Archive Status** - Verify layout is not already archived  
 ✅ **Use Descriptive Names** - Name layouts clearly to avoid confusion  
+✅ **Monitor Activity Logs** - Track all layout archive actions  
+✅ **Plan Archives** - Consider which layouts are truly no longer needed  
+✅ **Recovery Strategy** - Know how to unarchive layouts if needed  
+✅ **Filter Views** - Use `archived: false` filters in your queries  
 
 ### Safety Features
 
-The `deleteTableLayout` function includes several safety features to prevent accidental data loss:
+The `deleteTableLayout` function includes several safety features for the archive system:
 
-- **Event Usage Validation**: Automatically checks if the layout is used in any events
-- **Detailed Error Messages**: Shows exactly which events are using the layout
-- **Complete Audit Trail**: Logs all deletion actions with full context
-- **User Tracking**: Records who performed the deletion
+- **Archive Prevention**: Prevents double-archiving of already archived layouts
+- **Data Preservation**: Maintains all layout data and dependencies intact
+- **Complete Audit Trail**: Logs all archive actions with full context
+- **User Tracking**: Records who performed the archive action
+- **Recovery Ready**: Layouts can be easily unarchived using updateTableLayout
+- **Dependency Safety**: Existing events can still reference archived layouts
 - **Statistics**: Returns counts of what was deleted
 
 ### Database Impact

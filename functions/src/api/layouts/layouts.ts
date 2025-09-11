@@ -164,6 +164,7 @@ export const createTableLayout = onCall({
       canvasHeight: data.canvasHeight,
       canvasWidth: data.canvasWidth,
       items: data.items,
+      archived: false, // New layouts are not archived by default
       createdAt: FieldValue.serverTimestamp(),
       createdBy: currentUser.uid,
     };
@@ -234,6 +235,7 @@ const updateTableLayoutSchema = Joi.object({
   name: Joi.string().optional().min(1).max(100),
   canvasHeight: Joi.number().optional().min(100).max(10000),
   canvasWidth: Joi.number().optional().min(100).max(10000),
+  archived: Joi.boolean().optional(), // Allow updating archived status
   items: Joi.array().items(Joi.object({
     tableName: Joi.string().when('type', {
       is: 'ItemType.table',
@@ -262,6 +264,7 @@ interface UpdateTableLayoutData {
   name?: string;
   canvasHeight?: number;
   canvasWidth?: number;
+  archived?: boolean;
   items?: LayoutItem[];
 }
 
@@ -402,6 +405,17 @@ export const updateTableLayout = onCall({
     if (data.canvasWidth !== undefined) {
       updateFields.canvasWidth = data.canvasWidth;
     }
+    if (data.archived !== undefined) {
+      updateFields.archived = data.archived;
+      // Add archive/unarchive timestamp and user
+      if (data.archived === true) {
+        updateFields.archivedAt = FieldValue.serverTimestamp();
+        updateFields.archivedBy = currentUser.uid;
+      } else {
+        updateFields.unarchivedAt = FieldValue.serverTimestamp();
+        updateFields.unarchivedBy = currentUser.uid;
+      }
+    }
     if (data.items !== undefined) {
       updateFields.items = data.items;
     }
@@ -481,13 +495,13 @@ const deleteTableLayoutSchema = Joi.object({
 });
 
 /**
- * Delete an existing table layout
+ * Archive an existing table layout (soft delete)
  * This function:
  * 1. Validates the request data
  * 2. Checks if company and layout exist
- * 3. Validates that layout is not used in any events
- * 4. Deletes the layout document
- * 5. Logs the deletion action
+ * 3. Sets the layout as archived instead of deleting
+ * 4. Logs the archive action
+ * 5. Preserves data integrity for existing dependencies
  */
 export const deleteTableLayout = onCall({
   enforceAppCheck: false,
@@ -578,33 +592,29 @@ export const deleteTableLayout = onCall({
       };
     }
 
-    // Check if layout is used in any events
-    console.log('🔍 Checking if layout is used in any events...');
-    const eventsQuery = await db.collection('companies')
-      .doc(data.companyId)
-      .collection('events')
-      .where('tableLayouts', 'array-contains', data.layoutId)
-      .get();
-
-    if (!eventsQuery.empty) {
-      const eventNames = eventsQuery.docs.map(doc => doc.data().eventName || 'Unnamed Event');
+    // Check if layout is already archived
+    if (existingLayoutData.archived === true) {
       return {
         success: false,
-        error: `Cannot delete layout. It is currently used in ${eventsQuery.size} event(s): ${eventNames.join(', ')}`,
+        error: "Layout is already archived",
       };
     }
-    console.log('✅ Layout is not used in any events');
 
-    // Delete the layout
-    await layoutRef.delete();
-    console.log(`✅ Layout deleted successfully: ${data.layoutId}`);
+    // Archive the layout instead of deleting
+    await layoutRef.update({
+      archived: true,
+      archivedAt: FieldValue.serverTimestamp(),
+      archivedBy: currentUser.uid,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+    console.log(`✅ Layout archived successfully: ${data.layoutId}`);
 
-    // Log the deletion action
+    // Log the archive action
     await db.collection('companies')
       .doc(data.companyId)
       .collection('activityLogs')
       .add({
-        action: 'table_layout_deleted',
+        action: 'table_layout_archived',
         layoutId: data.layoutId,
         layoutName: existingLayoutData.name,
         itemsCount: existingLayoutData.items?.length || 0,
@@ -612,26 +622,27 @@ export const deleteTableLayout = onCall({
           height: existingLayoutData.canvasHeight,
           width: existingLayoutData.canvasWidth,
         },
-        deletedBy: userName,
+        archivedBy: userName,
         timestamp: FieldValue.serverTimestamp(),
       });
 
     return {
       success: true,
-      message: "Table layout deleted successfully",
+      message: "Table layout archived successfully",
       data: {
         layoutId: data.layoutId,
         layoutName: existingLayoutData.name,
         itemsCount: existingLayoutData.items?.length || 0,
         tablesCount: existingLayoutData.items?.filter((item: any) => item.type === 'ItemType.table').length || 0,
         objectsCount: existingLayoutData.items?.filter((item: any) => item.type === 'ItemType.object').length || 0,
-        deletedBy: userName,
-        deletedAt: new Date().toISOString()
+        archived: true,
+        archivedBy: userName,
+        archivedAt: new Date().toISOString()
       }
     };
 
   } catch (error: any) {
-    console.error("Error deleting table layout:", error);
+    console.error("Error archiving table layout:", error);
     
     // Get more detailed error information
     let errorMessage = 'Unknown error occurred';
@@ -643,7 +654,7 @@ export const deleteTableLayout = onCall({
     
     return {
       success: false,
-      error: `Failed to delete table layout: ${errorMessage}`,
+      error: `Failed to archive table layout: ${errorMessage}`,
     };
   }
 });
