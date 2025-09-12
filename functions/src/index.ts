@@ -77,6 +77,7 @@ export const checkExistingUser = tablesApi.checkExistingUser;
 export const updateTable = tablesApi.updateTable;
 export const cancelReservation = tablesApi.cancelReservation;
 export const resellTable = tablesApi.resellTable;
+export const moveTable = tablesApi.moveTable;
 
 // Notifications API
 export const sendSmsNotification = notificationsApi.sendSmsNotification;

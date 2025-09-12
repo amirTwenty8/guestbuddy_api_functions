@@ -23,20 +23,21 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 17. **updateTable** - Update table information after booking with logging and spending tracking
 18. **cancelReservation** - Cancel a table reservation and remove all guest data except staff
 19. **resellTable** - Re-sell a table during an event while preserving historical data
-20. **addUserToCompany** - Add users to a company, either by finding existing users or creating new ones
-21. **editUserInCompany** - Edit user information and change their role within a company
-22. **removeUserFromCompany** - Remove users from a company and manage their business mode
-23. **createEventTicket** - Create tickets for an event with auto-generated UUID and ticket summary management
-24. **createClubCard** - Create club cards with unique IDs (QR codes generated on-demand)
-25. **updateClubCard** - Update club card details and generate additional card items when needed
-26. **deleteClubCard** - Delete club cards with validation that they're not in use
-27. **createTableLayout** - Create table layouts from canvas objects with rotation support
-28. **updateTableLayout** - Update existing table layouts with partial field updates and rotation support
-29. **deleteTableLayout** - Archive table layouts (soft delete) to preserve data integrity while hiding from views
-30. **createLandingPage** - Create custom landing pages for events with password protection and styling
-31. **updateLandingPage** - Update existing landing pages with automatic slug regeneration and validation
-32. **deleteLandingPage** - Delete landing pages with proper cleanup
-33. **submitContactForm** - Submit support requests with attachments and email notifications
+20. **moveTable** - Move or swap table bookings between different tables while preserving staff assignments
+21. **addUserToCompany** - Add users to a company, either by finding existing users or creating new ones
+22. **editUserInCompany** - Edit user information and change their role within a company
+23. **removeUserFromCompany** - Remove users from a company and manage their business mode
+24. **createEventTicket** - Create tickets for an event with auto-generated UUID and ticket summary management
+25. **createClubCard** - Create club cards with unique IDs (QR codes generated on-demand)
+26. **updateClubCard** - Update club card details and generate additional card items when needed
+27. **deleteClubCard** - Delete club cards with validation that they're not in use
+28. **createTableLayout** - Create table layouts from canvas objects with rotation support
+29. **updateTableLayout** - Update existing table layouts with partial field updates and rotation support
+30. **deleteTableLayout** - Archive table layouts (soft delete) to preserve data integrity while hiding from views
+31. **createLandingPage** - Create custom landing pages for events with password protection and styling
+32. **updateLandingPage** - Update existing landing pages with automatic slug regeneration and validation
+33. **deleteLandingPage** - Delete landing pages with proper cleanup
+34. **submitContactForm** - Submit support requests with attachments and email notifications
 
 ## Prerequisites
 
@@ -6019,3 +6020,220 @@ Support team receives email with subject: `Support - #1K2L3M4N5P6Q - Technical I
 - **Database Cleanup**: Plan for ticket archival strategy
 - **Response Workflow**: Set up support team processes
 - **Analytics**: Track ticket volume and response times
+
+## Testing the moveTable Function
+
+### Request Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/moveTable`
+- **Method**: POST
+- **Headers**: 
+  - Content-Type: application/json
+  - Authorization: Bearer YOUR_FIREBASE_TOKEN
+
+### Request Body
+
+```json
+{
+  "data": {
+    "companyId": "your-company-id",
+    "eventId": "your-event-id",
+    "sourceLayoutId": "source-layout-id",
+    "sourceTableName": "101",
+    "destinationLayoutId": "destination-layout-id",
+    "destinationTableName": "102"
+  }
+}
+```
+
+### Validation Rules
+
+- `companyId`, `eventId`, `sourceLayoutId`, `sourceTableName`, `destinationLayoutId`, and `destinationTableName` are required
+- Source table must exist and have a booking
+- Destination table must exist
+- Company and event must exist
+
+### Expected Response (Move to Empty Table)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Table moved successfully from 101 to 102",
+    "data": {
+      "operation": "move",
+      "sourceTable": "101",
+      "destinationTable": "102",
+      "guestName": "John Doe",
+      "movedBy": "Amir Company Ehsani",
+      "timestamp": "2025-09-12T11:00:00.000Z"
+    }
+  }
+}
+```
+
+### Expected Response (Swap with Occupied Table)
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Tables swapped successfully between 101 and 102",
+    "data": {
+      "operation": "swap",
+      "sourceTable": "101",
+      "destinationTable": "102",
+      "sourceGuest": "John Doe",
+      "destinationGuest": "Jane Smith",
+      "swappedBy": "Amir Company Ehsani",
+      "timestamp": "2025-09-12T11:00:00.000Z"
+    }
+  }
+}
+```
+
+### What the Function Does
+
+1. **Validation**: Checks if company, event, and both tables exist
+2. **Source Check**: Verifies source table has a booking to move
+3. **Destination Check**: Determines if destination table is occupied
+4. **Operation Decision**: Chooses between move or swap operation
+5. **Staff Preservation**: Keeps staff assignments at their original locations
+6. **Batch Update**: Performs all table updates in a single transaction
+7. **Logging**: Creates detailed logs for both tables involved
+8. **Summary Update**: Updates table summary for consistency (move only)
+
+### Key Features
+
+✅ **Smart Operation Detection** - Automatically chooses move or swap based on destination  
+✅ **Staff Preservation** - Staff members stay at their original table locations  
+✅ **Atomic Operations** - All updates happen in a single batch transaction  
+✅ **Comprehensive Logging** - Detailed logs for both tables with operation context  
+✅ **Data Integrity** - Validates all tables and bookings before operation  
+✅ **Flexible Layouts** - Supports moving between different table layouts  
+✅ **Move Tracking** - Records move history in table data for audit trail  
+
+### Error Responses
+
+**Source table not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Source table 101 not found in layout source-layout-id"
+  }
+}
+```
+
+**Destination table not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Destination table 102 not found in layout destination-layout-id"
+  }
+}
+```
+
+**Source table not booked:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Source table has no booking to move"
+  }
+}
+```
+
+**Company not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Company not found"
+  }
+}
+```
+
+**Event not found:**
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Event not found"
+  }
+}
+```
+
+### Move/Swap Workflow Examples
+
+### Scenario 1: Move to Empty Table
+
+1. **Source table**: John Doe is booked at Table 101 with Staff Member A
+2. **Destination table**: Table 102 is empty with Staff Member B
+3. **Operation**: Move booking from 101 to 102
+4. **Result**: 
+   - Table 101: Empty, still has Staff Member A
+   - Table 102: John Doe booking, still has Staff Member B
+
+### Scenario 2: Swap Between Occupied Tables
+
+1. **Source table**: John Doe is booked at Table 101 with Staff Member A
+2. **Destination table**: Jane Smith is booked at Table 102 with Staff Member B
+3. **Operation**: Swap bookings between 101 and 102
+4. **Result**: 
+   - Table 101: Jane Smith booking, still has Staff Member A
+   - Table 102: John Doe booking, still has Staff Member B
+
+### Scenario 3: Cross-Layout Move
+
+1. **Source**: VIP layout, Table V1 with John Doe
+2. **Destination**: Main layout, Table M5 (empty)
+3. **Operation**: Move between different layouts
+4. **Result**: Booking moved from VIP to Main layout, staff preserved at both locations
+
+### Best Practices
+
+✅ **Verify Tables First** - Check that both tables exist before attempting move  
+✅ **Staff Communication** - Inform staff about guest moves between their tables  
+✅ **Monitor Logs** - Track all move operations for audit purposes  
+✅ **Test Operations** - Verify moves work correctly in your application  
+✅ **Handle Errors** - Implement proper error handling for failed moves  
+✅ **User Feedback** - Provide clear feedback about move/swap results  
+✅ **Permission Checks** - Ensure users have rights to move tables  
+
+### Usage with Your Flutter Code
+
+Replace your current `_moveTable` function calls to use the new API:
+
+```dart
+// Instead of directly calling FirestoreService.updateTableData
+final result = await FirebaseCloudFunctions.instance.httpsCallable('moveTable').call({
+  'companyId': widget.companyId,
+  'eventId': widget.eventId,
+  'sourceLayoutId': widget.tableData['layoutName'], // Use layoutId
+  'sourceTableName': widget.tableData['tableName'],
+  'destinationLayoutId': destLayoutName, // Use layoutId
+  'destinationTableName': destTableName,
+});
+
+if (result.data['success']) {
+  // Handle success
+  final operation = result.data['data']['operation']; // 'move' or 'swap'
+  print('Operation completed: $operation');
+} else {
+  // Handle error
+  print('Error: ${result.data['error']}');
+}
+```
+
+### Safety Features
+
+The `moveTable` function includes several safety features:
+
+- **Existence Validation**: Verifies all tables, layouts, company, and event exist
+- **Booking Validation**: Ensures source table has a booking to move
+- **Atomic Operations**: All updates happen in a single batch to prevent partial failures
+- **Staff Preservation**: Maintains staff assignments at their original locations
+- **Comprehensive Logging**: Creates detailed audit trail for all operations
+- **Error Handling**: Provides clear error messages for troubleshooting

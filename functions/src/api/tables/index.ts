@@ -1596,3 +1596,353 @@ export const resellTable = onCall({
   }
 });
 
+// Move/Swap Table Schema
+const moveTableSchema = Joi.object({
+  companyId: Joi.string().required(),
+  eventId: Joi.string().required(),
+  sourceLayoutId: Joi.string().required(),
+  sourceTableName: Joi.string().required(),
+  destinationLayoutId: Joi.string().required(),
+  destinationTableName: Joi.string().required(),
+});
+
+/**
+ * Move or swap table bookings between different tables
+ * This function handles:
+ * 1. Moving a booking to an empty table
+ * 2. Swapping bookings between two occupied tables
+ * 3. Staff members stay at their original table locations
+ * 4. Proper logging and summary updates
+ * 5. Validation of source and destination tables
+ */
+export const moveTable = onCall({
+  enforceAppCheck: false,
+}, async (request) => {
+  try {
+    console.log('🚀 moveTable function STARTED');
+    
+    if (!request.auth) {
+      return {
+        success: false,
+        error: "Unauthorized",
+      };
+    }
+
+    // Extract and validate data
+    const data = request.data;
+    const { error } = moveTableSchema.validate(data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Get current user info
+    const currentUser = request.auth;
+    let userName = 'Unknown User';
+    
+    try {
+      const currentUserDoc = await db.collection('users').doc(currentUser.uid).get();
+      if (currentUserDoc.exists) {
+        const userData = currentUserDoc.data();
+        userName = `${userData?.userFirstName || ''} ${userData?.userLastName || ''}`.trim() || 'Unknown User';
+      }
+    } catch (error) {
+      console.log('Could not fetch current user name:', error);
+    }
+
+    // Validate company and event exist
+    const companyRef = db.collection('companies').doc(data.companyId);
+    const companyDoc = await companyRef.get();
+    if (!companyDoc.exists) {
+      return { success: false, error: "Company not found" };
+    }
+
+    const eventRef = companyRef.collection('events').doc(data.eventId);
+    const eventDoc = await eventRef.get();
+    if (!eventDoc.exists) {
+      return { success: false, error: "Event not found" };
+    }
+
+    // Get source layout document
+    const sourceLayoutRef = eventRef.collection('table_lists').doc(data.sourceLayoutId);
+    const sourceLayoutDoc = await sourceLayoutRef.get();
+    if (!sourceLayoutDoc.exists) {
+      return { 
+        success: false, 
+        error: `Source layout ${data.sourceLayoutId} not found` 
+      };
+    }
+
+    const sourceLayoutData = sourceLayoutDoc.data();
+    const sourceItems = sourceLayoutData?.items || [];
+    
+    // Find source table in items array
+    const sourceTableIndex = sourceItems.findIndex((item: any) => item.tableName === data.sourceTableName);
+    if (sourceTableIndex === -1) {
+      return { 
+        success: false, 
+        error: `Source table ${data.sourceTableName} not found in layout ${data.sourceLayoutId}` 
+      };
+    }
+
+    const sourceTableData = sourceItems[sourceTableIndex];
+    
+    // Check if source table has a booking
+    const isSourceBooked = sourceTableData?.name && sourceTableData.name.trim() !== '';
+    if (!isSourceBooked) {
+      return {
+        success: false,
+        error: "Source table has no booking to move"
+      };
+    }
+
+    // Get destination layout document (could be same as source)
+    let destLayoutRef, destLayoutDoc, destLayoutData, destItems;
+    if (data.destinationLayoutId === data.sourceLayoutId) {
+      // Same layout - reuse the data we already have
+      destLayoutRef = sourceLayoutRef;
+      destLayoutDoc = sourceLayoutDoc;
+      destLayoutData = sourceLayoutData;
+      destItems = sourceItems;
+    } else {
+      // Different layout - fetch it
+      destLayoutRef = eventRef.collection('table_lists').doc(data.destinationLayoutId);
+      destLayoutDoc = await destLayoutRef.get();
+      if (!destLayoutDoc.exists) {
+        return { 
+          success: false, 
+          error: `Destination layout ${data.destinationLayoutId} not found` 
+        };
+      }
+      destLayoutData = destLayoutDoc.data();
+      destItems = destLayoutData?.items || [];
+    }
+    
+    // Find destination table in items array
+    const destTableIndex = destItems.findIndex((item: any) => item.tableName === data.destinationTableName);
+    if (destTableIndex === -1) {
+      return { 
+        success: false, 
+        error: `Destination table ${data.destinationTableName} not found in layout ${data.destinationLayoutId}` 
+      };
+    }
+
+    const destTableData = destItems[destTableIndex];
+    
+    // Check if destination table is occupied
+    const isDestBooked = destTableData?.name && destTableData.name.trim() !== '';
+    
+    // Prepare move details for logging
+    const moveDetails = {
+      fromTable: data.sourceTableName,
+      fromLayout: data.sourceLayoutId,
+      toTable: data.destinationTableName,
+      toLayout: data.destinationLayoutId,
+      isSwap: !!isDestBooked, // Ensure boolean value, not undefined
+      timestamp: new Date().toISOString(), // Use regular timestamp instead of FieldValue.serverTimestamp()
+    };
+
+    // Store original staff assignments
+    const sourceStaff = sourceTableData?.tableStaff || '';
+    const destStaff = destTableData?.tableStaff || '';
+
+    if (isDestBooked) {
+      // SWAP OPERATION: Both tables are occupied
+      console.log('🔄 Performing table swap operation');
+
+      // Create updated items arrays for both layouts
+      const updatedSourceItems = [...sourceItems];
+      const updatedDestItems = data.destinationLayoutId === data.sourceLayoutId ? updatedSourceItems : [...destItems];
+
+      // Prepare log entries for both tables
+      const sourceLogEntry = {
+        action: "table_swapped",
+        changes: {
+          swappedWith: data.destinationTableName,
+          swappedWithLayout: data.destinationLayoutId,
+          originalGuest: sourceTableData?.name || '',
+          newGuest: destTableData?.name || '',
+        },
+        timestamp: new Date().toISOString(),
+        userName: userName,
+      };
+
+      const destLogEntry = {
+        action: "table_swapped",
+        changes: {
+          swappedWith: data.sourceTableName,
+          swappedWithLayout: data.sourceLayoutId,
+          originalGuest: destTableData?.name || '',
+          newGuest: sourceTableData?.name || '',
+        },
+        timestamp: new Date().toISOString(),
+        userName: userName,
+      };
+
+      // Prepare data for swapping (preserve table names and staff)
+      const sourceBookingData = {
+        ...destTableData,
+        tableStaff: sourceStaff, // Source staff stays at source
+        tableName: data.sourceTableName,
+        tableSwappedWith: data.destinationTableName,
+        tableSwappedWithLayout: data.destinationLayoutId,
+        logs: [...(sourceTableData.logs || []), sourceLogEntry], // Add to logs array
+        moveDetails: {
+          ...moveDetails,
+          swappedWith: destTableData?.name || 'unknown guest',
+        }
+      };
+      
+      const destBookingData = {
+        ...sourceTableData,
+        tableStaff: destStaff, // Destination staff stays at destination
+        tableName: data.destinationTableName,
+        tableSwappedWith: data.sourceTableName,
+        tableSwappedWithLayout: data.sourceLayoutId,
+        logs: [...(destTableData.logs || []), destLogEntry], // Add to logs array
+        moveDetails: {
+          ...moveDetails,
+          swappedWith: sourceTableData?.name || 'unknown guest',
+        }
+      };
+
+      // Update the items arrays
+      updatedSourceItems[sourceTableIndex] = sourceBookingData;
+      updatedDestItems[destTableIndex] = destBookingData;
+
+      // Perform the swap in a batch
+      const batch = db.batch();
+      
+      // Update source layout
+      batch.update(sourceLayoutRef, { items: updatedSourceItems });
+      
+      // Update destination layout if different
+      if (data.destinationLayoutId !== data.sourceLayoutId) {
+        batch.update(destLayoutRef, { items: updatedDestItems });
+      }
+
+      await batch.commit();
+
+      return {
+        success: true,
+        message: `Tables swapped successfully between ${data.sourceTableName} and ${data.destinationTableName}`,
+        data: {
+          operation: 'swap',
+          sourceTable: data.sourceTableName,
+          destinationTable: data.destinationTableName,
+          sourceGuest: sourceTableData.name,
+          destinationGuest: destTableData.name,
+          swappedBy: userName,
+          timestamp: new Date().toISOString(),
+        }
+      };
+
+    } else {
+      // MOVE OPERATION: Destination table is empty
+      console.log('➡️ Performing table move operation');
+
+      // Create updated items arrays for both layouts
+      const updatedSourceItems = [...sourceItems];
+      const updatedDestItems = data.destinationLayoutId === data.sourceLayoutId ? updatedSourceItems : [...destItems];
+
+      // Prepare log entries for both tables
+      const sourceMoveLogEntry = {
+        action: "table_cleared_for_move",
+        changes: {
+          movedTo: data.destinationTableName,
+          movedToLayout: data.destinationLayoutId,
+          guestName: sourceTableData?.name || '',
+        },
+        timestamp: new Date().toISOString(),
+        userName: userName,
+      };
+
+      const destMoveLogEntry = {
+        action: "table_moved_here",
+        changes: {
+          movedFrom: data.sourceTableName,
+          movedFromLayout: data.sourceLayoutId,
+          guestName: sourceTableData?.name || '',
+        },
+        timestamp: new Date().toISOString(),
+        userName: userName,
+      };
+
+      // Clear source table but keep staff and table structure
+      const clearedSourceData = {
+        ...sourceTableData,
+        name: '',
+        phoneNr: '',
+        tableEmail: '',
+        nrOfGuests: 0,
+        tableBookedBy: '',
+        tableCheckedIn: 0,
+        tableLimit: 0,
+        tableSpent: 0,
+        tableTimeFrom: '',
+        tableTimeTo: '',
+        tableStaff: sourceStaff || '', // Keep original staff at source
+        comment: '',
+        tableName: data.sourceTableName,
+        userId: null,
+        tableMovedTo: data.destinationTableName,
+        tableMovedToLayout: data.destinationLayoutId,
+        logs: [...(sourceTableData.logs || []), sourceMoveLogEntry], // Add to logs array
+      };
+
+      // Move booking to destination (preserve table name and destination staff)
+      const movedBookingData = {
+        ...sourceTableData,
+        tableStaff: destStaff || '', // Keep destination staff at destination
+        tableName: data.destinationTableName,
+        tableMovedFrom: data.sourceTableName,
+        tableMovedFromLayout: data.sourceLayoutId,
+        logs: [...(destTableData.logs || []), destMoveLogEntry], // Add to logs array
+        moveDetails: moveDetails,
+      };
+
+      // Update the items arrays
+      updatedSourceItems[sourceTableIndex] = clearedSourceData;
+      updatedDestItems[destTableIndex] = movedBookingData;
+
+      // Perform the move in a batch
+      const batch = db.batch();
+      
+      // Update source layout
+      batch.update(sourceLayoutRef, { items: updatedSourceItems });
+      
+      // Update destination layout if different
+      if (data.destinationLayoutId !== data.sourceLayoutId) {
+        batch.update(destLayoutRef, { items: updatedDestItems });
+      }
+
+      await batch.commit();
+
+      // Update table summary (mainly for consistency)
+      await updateTableSummary(data.companyId, data.eventId);
+
+      return {
+        success: true,
+        message: `Table moved successfully from ${data.sourceTableName} to ${data.destinationTableName}`,
+        data: {
+          operation: 'move',
+          sourceTable: data.sourceTableName,
+          destinationTable: data.destinationTableName,
+          guestName: sourceTableData.name,
+          movedBy: userName,
+          timestamp: new Date().toISOString(),
+        }
+      };
+    }
+
+  } catch (error: any) {
+    console.error("Error moving/swapping table:", error);
+    return {
+      success: false,
+      error: `Failed to move table: ${error.message}`,
+    };
+  }
+});
+
