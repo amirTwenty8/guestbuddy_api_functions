@@ -257,6 +257,19 @@ export const bookTable = onCall({
     const layoutName = layoutData?.layoutName || data.tableId; // Use layout document ID as fallback
     const tableName = tableData?.tableName || data.tableName;
 
+    // ⚠️ RACE CONDITION CHECK: Verify table is still available
+    // Check if table is already booked (name field indicates booking status)
+    const isTableAlreadyBooked = tableData?.name && tableData.name.trim() !== '';
+    
+    if (isTableAlreadyBooked) {
+      return {
+        success: false,
+        error: `Table "${data.tableName}" has already been booked by another guest. Please refresh and try a different table.`,
+        alreadyBookedBy: tableData.name,
+        tableBookedBy: tableData.tableBookedBy,
+      };
+    }
+
 
 
     // Prepare log entry for the table - use user data when available
@@ -299,19 +312,49 @@ export const bookTable = onCall({
       logs: [...(tableData.logs || []), logEntry],
     };
 
-    // Update the specific table in the items array
-    items[tableIndex] = updatedTableData;
-
-    // Update the specific layout document with the modified items array
-    await db.collection('companies')
+    // Use transaction to prevent race conditions during booking
+    const layoutRef = db.collection('companies')
       .doc(data.companyId)
       .collection('events')
       .doc(data.eventId)
       .collection('table_lists')
-      .doc(data.tableId) // Update the specific layout document
-      .update({
-        items: items
+      .doc(data.tableId);
+
+    await db.runTransaction(async (transaction) => {
+      // Re-read the layout document inside the transaction
+      const transactionLayoutDoc = await transaction.get(layoutRef);
+      
+      if (!transactionLayoutDoc.exists) {
+        throw new Error('Layout document not found');
+      }
+
+      const transactionLayoutData = transactionLayoutDoc.data();
+      const transactionItems = transactionLayoutData?.items || [];
+      
+      // Find the table again in the fresh data
+      const transactionTableIndex = transactionItems.findIndex((item: any) => item.tableName === data.tableName);
+      
+      if (transactionTableIndex === -1) {
+        throw new Error(`Table "${data.tableName}" not found in layout`);
+      }
+
+      const transactionTableData = transactionItems[transactionTableIndex];
+      
+      // ⚠️ FINAL RACE CONDITION CHECK: Verify table is STILL available
+      const isStillAvailable = !transactionTableData?.name || transactionTableData.name.trim() === '';
+      
+      if (!isStillAvailable) {
+        throw new Error(`Table "${data.tableName}" was just booked by another guest: ${transactionTableData.name}`);
+      }
+
+      // Safe to book - update the table in the items array
+      transactionItems[transactionTableIndex] = updatedTableData;
+      
+      // Update the layout document with the modified items array
+      transaction.update(layoutRef, {
+        items: transactionItems
       });
+    });
 
     // Update table summary (inside table_lists collection)
     await db.collection('companies')
