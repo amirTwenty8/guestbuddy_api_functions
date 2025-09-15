@@ -21,6 +21,7 @@ import * as landingPagesApi from "./api/landing-pages";
 import * as cardsApi from "./api/cards";
 import * as layoutsApi from "./api/layouts";
 import * as supportApi from "./api/support";
+import * as companiesApi from "./api/companies";
 
 // Export all functions
 export const users = usersApi.users;
@@ -34,6 +35,9 @@ export const revokeUserSessions = authApi.revokeUserSessions;
 export const createAccount = authApi.createAccount;
 export const verifyEmail = authApi.verifyEmail; // Added for verifyEmail API
 export const resendVerificationEmail = authApi.resendVerificationEmail; // Added for resendVerificationEmail API
+
+// Companies API
+export const createCompanyWithAdmin = companiesApi.createCompanyWithAdmin;
 
 export const data = dataApi.data;
 export const batchUpdateItems = dataApi.batchUpdateItems;

@@ -15,8 +15,9 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 9. **checkInGuest** - Check in guests or edit check-in counts with rapid tapping support
 10. **deleteGuest** - Delete one or multiple guests from guest lists with summary updates
 11. **createAccount** - Create a new user account with Firebase Auth and Firestore data
-12. **verifyEmail** - Verify email with 6-digit verification code
-13. **resendVerificationEmail** - Resend verification email to user
+12. **createCompanyWithAdmin** - Create a new company with admin user (handles both new and existing users)
+13. **verifyEmail** - Verify email with 6-digit verification code
+14. **resendVerificationEmail** - Resend verification email to user
 14. **checkExistingUser** - Check if a user exists with the given phone number (first step of table booking)
 15. **bookTable** - Book a table for an event (second step of table booking, requires user choice)
 16. **sendSmsNotification** - Send SMS notifications for booking confirmations or reminders
@@ -6236,4 +6237,354 @@ The `moveTable` function includes several safety features:
 - **Atomic Operations**: All updates happen in a single batch to prevent partial failures
 - **Staff Preservation**: Maintains staff assignments at their original locations
 - **Comprehensive Logging**: Creates detailed audit trail for all operations
-- **Error Handling**: Provides clear error messages for troubleshooting
+
+---
+
+## Testing the createCompanyWithAdmin Function
+
+### Overview
+
+The `createCompanyWithAdmin` function creates a new company and sets up an admin user. It handles both new user creation and linking existing users to the new company.
+
+### Request Body
+
+#### With Images (Base64 encoded)
+```json
+{
+  "data": {
+    "companyName": "My Awesome Company",
+    "imageUrl": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...",
+    "venueImages": [
+      "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...",
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB..."
+    ],
+    "address": "123 Main Street, City, Country",
+    "companyNumber": "SE123456789",
+    "country": "Sweden",
+    "description": "A great company description",
+    "website": "https://mycompany.com",
+    "userFirstName": "John",
+    "userLastName": "Doe",
+    "userEmail": "john@mycompany.com",
+    "phoneNumber": "+46123456789",
+    "birthDate": "1990-01-01",
+    "city": "Stockholm",
+    "password": "SecurePassword123!",
+    "terms": true
+  }
+}
+```
+
+#### Without Images (Optional)
+```json
+{
+  "data": {
+    "companyName": "My Awesome Company",
+    "address": "123 Main Street, City, Country",
+    "companyNumber": "SE123456789",
+    "country": "Sweden",
+    "description": "A great company description",
+    "website": "https://mycompany.com",
+    "userFirstName": "John",
+    "userLastName": "Doe",
+    "userEmail": "john@mycompany.com",
+    "phoneNumber": "+46123456789",
+    "birthDate": "1990-01-01",
+    "city": "Stockholm",
+    "password": "SecurePassword123!",
+    "terms": true
+  }
+}
+```
+
+### Response
+
+#### Success Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Company and user account created successfully. Please check your email for the 6-digit verification code.",
+    "data": {
+      "companyId": "MsbkLEiApm2OIyzeuQ5T",
+      "userId": "uuid-generated-user-id",
+      "isExistingUser": false,
+      "companyName": "My Awesome Company",
+      "userEmail": "john@mycompany.com",
+      "slug": "my-awesome-company",
+      "currency": "SEK",
+      "emailVerificationSent": true,
+      "verificationCode": "123456"
+    }
+  }
+}
+```
+
+#### Existing User Response
+
+```json
+{
+  "result": {
+    "success": true,
+    "message": "Company created successfully and linked to existing user account",
+    "data": {
+      "companyId": "MsbkLEiApm2OIyzeuQ5T",
+      "userId": "existing-user-id",
+      "isExistingUser": true,
+      "companyName": "My Awesome Company",
+      "userEmail": "john@mycompany.com",
+      "slug": "my-awesome-company",
+      "currency": "SEK",
+      "emailVerificationSent": false,
+      "verificationCode": null
+    }
+  }
+}
+```
+
+### Validation Rules
+
+- **companyName**: Required, 1-100 characters
+- **imageUrl**: Optional, Base64 encoded image data (data:image/...) or empty string
+- **venueImages**: Optional, array of Base64 encoded image data or empty array
+- **address**: Required, 1-200 characters
+- **companyNumber**: Required, 1-50 characters (VAT number)
+- **country**: Required, 1-100 characters
+- **userFirstName**: Required, 1-50 characters
+- **userLastName**: Required, 1-50 characters
+- **userEmail**: Required, valid email format
+- **phoneNumber**: Required, E.164 format (+1234567890)
+- **birthDate**: Required, YYYY-MM-DD format, user must be 16+
+- **city**: Required, 1-100 characters
+- **password**: Required, 8-128 characters
+- **terms**: Required, must be true
+
+### What the Function Does
+
+1. **Validates Input**: Checks all required fields and formats
+2. **Age Verification**: Ensures user is at least 16 years old
+3. **Image Upload**: Handles Firebase Storage uploads for images
+   - **Company Logo**: Uploads to `companies/logos/{companyId}-logo.jpg`
+   - **Venue Images**: Uploads to `companies/{companyId}/venueImages/venue-{index}.jpg`
+4. **User Check**: Looks for existing user by email
+5. **User Creation/Linking**:
+   - If user exists: Links to new company as admin
+   - If user doesn't exist: Creates new Firebase Auth user
+6. **Company Creation**: Creates company with proper field mapping
+7. **Field Mapping**:
+   - **Company**: `companyName`, `imageUrl` (Firebase Storage URL), `slug` (auto-generated), `currency` (country-based), `admins` (user as admin), `address`, `activeCustomer: false`, `companyNumber`, `country`, `description`, `openHours: {}`, `venueImages` (Firebase Storage URLs), `website`
+   - **User**: `businessMode: true`, `companyId` (array with company), `e164Number`, `phoneNumber`, `userActive: true`, `userEmail`, `userFirstName`, `userLastName`, `birthDate`, `country`, `city`, `emailVerified: false`
+8. **Company ID Generation**: Creates short, readable company ID (e.g., `MsbkLEiApm2OIyzeuQ5T`)
+9. **Email Verification**: Sends 6-digit verification code via email to new users
+10. **Atomic Operation**: Uses Firestore transaction for consistency
+
+### Key Features
+
+- **Short Company IDs**: Generates readable company IDs (e.g., `MsbkLEiApm2OIyzeuQ5T`)
+- **Automatic Slug Generation**: Creates URL-friendly slug from company name
+- **Currency Detection**: Sets currency based on country (SEK for Sweden, USD for US, etc.)
+- **Image Upload Support**: Handles Firebase Storage uploads for company logos and venue images
+- **Email Verification**: Automatically sends 6-digit verification codes to new users
+- **Existing User Support**: Links existing users instead of creating duplicates
+- **Business Mode Activation**: Enables business mode for admin user
+- **Atomic Operations**: All-or-nothing transaction ensures data consistency
+- **Proper Field Mapping**: Uses exact database field names from existing structure
+- **Optional Images**: Images are completely optional - function works with or without them
+
+### Error Responses
+
+#### Validation Error
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Validation error: companyName is required"
+  }
+}
+```
+
+#### Age Restriction
+```json
+{
+  "result": {
+    "success": false,
+    "error": "You must be at least 16 years old to create a company"
+  }
+}
+```
+
+#### Terms Not Accepted
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Terms and conditions must be accepted"
+  }
+}
+```
+
+#### Firebase Auth Errors
+```json
+{
+  "result": {
+    "success": false,
+    "error": "An account with this email already exists"
+  }
+}
+```
+
+#### Image Upload Errors
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Failed to upload company logo"
+  }
+}
+```
+
+```json
+{
+  "result": {
+    "success": false,
+    "error": "Failed to upload venue images"
+  }
+}
+```
+
+### Workflow Examples
+
+#### New Company with New User
+1. User fills company registration form
+2. API creates new Firebase Auth user
+3. API creates company document with short company ID
+4. API links user to company as admin
+5. API generates 6-digit verification code and sends email
+6. User receives verification email with 6-digit code
+7. User uses `verifyEmail` API to verify account with the code
+
+#### New Company with Existing User
+1. User fills company registration form
+2. API finds existing user by email
+3. API creates company document with short company ID
+4. API adds company to user's company list
+5. User is now admin of new company (no email verification needed)
+
+### Flutter Integration
+
+```dart
+import 'dart:convert';
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
+
+Future<Map<String, dynamic>?> createCompanyWithAdmin({
+  required String companyName,
+  required String address,
+  required String companyNumber,
+  required String country,
+  required String userFirstName,
+  required String userLastName,
+  required String userEmail,
+  required String phoneNumber,
+  required String birthDate,
+  required String city,
+  required String password,
+  File? logoImage,
+  List<File>? venueImages,
+  String? description,
+  String? website,
+}) async {
+  try {
+    final callable = FirebaseFunctions.instance.httpsCallable('createCompanyWithAdmin');
+    
+    // Convert images to base64
+    String? logoBase64;
+    if (logoImage != null) {
+      final bytes = await logoImage.readAsBytes();
+      logoBase64 = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+    }
+    
+    List<String>? venueImagesBase64;
+    if (venueImages != null && venueImages.isNotEmpty) {
+      venueImagesBase64 = [];
+      for (final image in venueImages) {
+        final bytes = await image.readAsBytes();
+        venueImagesBase64.add('data:image/jpeg;base64,${base64Encode(bytes)}');
+      }
+    }
+    
+    final result = await callable.call({
+      'companyName': companyName,
+      'imageUrl': logoBase64 ?? '',
+      'venueImages': venueImagesBase64 ?? [],
+      'address': address,
+      'companyNumber': companyNumber,
+      'country': country,
+      'description': description ?? '',
+      'website': website ?? '',
+      'userFirstName': userFirstName,
+      'userLastName': userLastName,
+      'userEmail': userEmail,
+      'phoneNumber': phoneNumber,
+      'birthDate': birthDate,
+      'city': city,
+      'password': password,
+      'terms': true,
+    });
+    
+    return result.data;
+  } catch (e) {
+    print('Error creating company: $e');
+    return null;
+  }
+}
+
+// Example usage with image picker
+Future<void> createCompanyWithImages() async {
+  // Pick company logo
+  final ImagePicker picker = ImagePicker();
+  final XFile? logoFile = await picker.pickImage(source: ImageSource.gallery);
+  
+  // Pick venue images
+  final List<XFile> venueFiles = await picker.pickMultiImage();
+  
+  if (logoFile != null) {
+    final result = await createCompanyWithAdmin(
+      companyName: 'My Company',
+      address: '123 Main St',
+      companyNumber: 'SE123456789',
+      country: 'Sweden',
+      userFirstName: 'John',
+      userLastName: 'Doe',
+      userEmail: 'john@company.com',
+      phoneNumber: '+46123456789',
+      birthDate: '1990-01-01',
+      city: 'Stockholm',
+      password: 'SecurePassword123!',
+      logoImage: File(logoFile.path),
+      venueImages: venueFiles.map((file) => File(file.path)).toList(),
+    );
+    
+    if (result?['success'] == true) {
+      print('Company created successfully!');
+      print('Company ID: ${result?['data']?['companyId']}');
+    }
+  }
+}
+```
+
+### Safety Features
+
+The `createCompanyWithAdmin` function includes several safety features:
+
+- **Input Validation**: Comprehensive validation of all fields
+- **Age Verification**: Prevents underage users from creating companies
+- **Duplicate Prevention**: Handles existing users gracefully
+- **Atomic Operations**: Uses Firestore transactions for data consistency
+- **Proper Field Mapping**: Uses exact database field names
+- **Image Upload Safety**: Handles image uploads with proper error handling
+- **Optional Images**: Images are completely optional - function works without them
+- **Error Handling**: Detailed error messages for different failure scenarios
+- **Terms Enforcement**: Requires explicit terms acceptance
+- **Storage Organization**: Images are organized in proper Firebase Storage paths
