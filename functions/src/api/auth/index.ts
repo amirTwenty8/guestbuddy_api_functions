@@ -40,6 +40,11 @@ const resendVerificationEmailSchema = Joi.object({
   email: Joi.string().email().required(),
 });
 
+// Validation schema for checking email existence
+const checkEmailExistsSchema = Joi.object({
+  email: Joi.string().email().required(),
+});
+
 // Type definitions
 interface CreateAccountData {
   firstName: string;
@@ -77,6 +82,10 @@ interface VerifyEmailData {
 }
 
 interface ResendVerificationEmailData {
+  email: string;
+}
+
+interface CheckEmailExistsData {
   email: string;
 }
 
@@ -786,6 +795,95 @@ export const revokeUserSessions = onCall({enforceAppCheck: true}, async (request
     return {
       success: false,
       error: "Failed to revoke user sessions",
+    };
+  }
+});
+
+/**
+ * Check if an email exists in Firebase Auth
+ * This function is useful for company creation flow to give users
+ * the option to use an existing email or change it
+ */
+export const checkEmailExists = onCall({
+  enforceAppCheck: false,
+}, async (request) => {
+  try {
+    const {email} = request.data as CheckEmailExistsData;
+
+    // Validate input data
+    const {error} = checkEmailExistsSchema.validate(request.data);
+    if (error) {
+      return {
+        success: false,
+        error: `Validation error: ${error.message}`,
+      };
+    }
+
+    // Check if user exists in Firebase Auth
+    let userRecord;
+    let existsInAuth = false;
+    let emailVerified = false;
+    let displayName = '';
+    let uid = '';
+
+    try {
+      userRecord = await auth.getUserByEmail(email);
+      existsInAuth = true;
+      emailVerified = userRecord.emailVerified || false;
+      displayName = userRecord.displayName || '';
+      uid = userRecord.uid;
+    } catch (error: any) {
+      if (error.code === 'auth/user-not-found') {
+        existsInAuth = false;
+      } else {
+        // Re-throw other errors
+        throw error;
+      }
+    }
+
+    // Check if user exists in Firestore (for additional context)
+    let existsInFirestore = false;
+    let businessMode = false;
+    let companyIds: string[] = [];
+
+    if (existsInAuth) {
+      try {
+        const userRef = db.collection('users').doc(uid);
+        const userDoc = await userRef.get();
+        
+        if (userDoc.exists) {
+          existsInFirestore = true;
+          const userData = userDoc.data();
+          businessMode = userData?.businessMode || false;
+          companyIds = userData?.companyId || [];
+        }
+      } catch (error) {
+        console.error("Error checking Firestore user:", error);
+        // Don't fail the request if Firestore check fails
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        email: email,
+        existsInAuth: existsInAuth,
+        existsInFirestore: existsInFirestore,
+        emailVerified: emailVerified,
+        displayName: displayName,
+        uid: existsInAuth ? uid : null,
+        businessMode: businessMode,
+        companyIds: companyIds,
+        message: existsInAuth 
+          ? "Email exists in the system. You can use this email to create a company or choose a different one."
+          : "Email is available for use."
+      },
+    };
+  } catch (error) {
+    console.error("Error checking email existence:", error);
+    return {
+      success: false,
+      error: "Failed to check email existence. Please try again.",
     };
   }
 });

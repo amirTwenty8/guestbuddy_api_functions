@@ -17,28 +17,29 @@ This guide explains how to test the GuestBuddy API Functions using Postman.
 11. **createAccount** - Create a new user account with Firebase Auth and Firestore data
 12. **createCompanyWithAdmin** - Create a new company with admin user (handles both new and existing users)
 13. **verifyEmail** - Verify email with 6-digit verification code
-14. **resendVerificationEmail** - Resend verification email to user
-14. **checkExistingUser** - Check if a user exists with the given phone number (first step of table booking)
-15. **bookTable** - Book a table for an event (second step of table booking, requires user choice)
-16. **sendSmsNotification** - Send SMS notifications for booking confirmations or reminders
-17. **updateTable** - Update table information after booking with logging and spending tracking
-18. **cancelReservation** - Cancel a table reservation and remove all guest data except staff
-19. **resellTable** - Re-sell a table during an event while preserving historical data
-20. **moveTable** - Move or swap table bookings between different tables while preserving staff assignments
-21. **addUserToCompany** - Add users to a company, either by finding existing users or creating new ones
-22. **editUserInCompany** - Edit user information and change their role within a company
-23. **removeUserFromCompany** - Remove users from a company and manage their business mode
-24. **createEventTicket** - Create tickets for an event with auto-generated UUID and ticket summary management
-25. **createClubCard** - Create club cards with unique IDs (QR codes generated on-demand)
-26. **updateClubCard** - Update club card details and generate additional card items when needed
-27. **deleteClubCard** - Delete club cards with validation that they're not in use
-28. **createTableLayout** - Create table layouts from canvas objects with rotation support
-29. **updateTableLayout** - Update existing table layouts with partial field updates and rotation support
-30. **deleteTableLayout** - Archive table layouts (soft delete) to preserve data integrity while hiding from views
-31. **createLandingPage** - Create custom landing pages for events with password protection and styling
-32. **updateLandingPage** - Update existing landing pages with automatic slug regeneration and validation
-33. **deleteLandingPage** - Delete landing pages with proper cleanup
-34. **submitContactForm** - Submit support requests with attachments and email notifications
+14. **checkEmailExists** - Check if an email exists in Firebase Auth and get user context
+15. **resendVerificationEmail** - Resend verification email to user
+16. **checkExistingUser** - Check if a user exists with the given phone number (first step of table booking)
+17. **bookTable** - Book a table for an event (second step of table booking, requires user choice)
+18. **sendSmsNotification** - Send SMS notifications for booking confirmations or reminders
+19. **updateTable** - Update table information after booking with logging and spending tracking
+20. **cancelReservation** - Cancel a table reservation and remove all guest data except staff
+21. **resellTable** - Re-sell a table during an event while preserving historical data
+22. **moveTable** - Move or swap table bookings between different tables while preserving staff assignments
+23. **addUserToCompany** - Add users to a company, either by finding existing users or creating new ones
+24. **editUserInCompany** - Edit user information and change their role within a company
+25. **removeUserFromCompany** - Remove users from a company and manage their business mode
+26. **createEventTicket** - Create tickets for an event with auto-generated UUID and ticket summary management
+27. **createClubCard** - Create club cards with unique IDs (QR codes generated on-demand)
+28. **updateClubCard** - Update club card details and generate additional card items when needed
+29. **deleteClubCard** - Delete club cards with validation that they're not in use
+30. **createTableLayout** - Create table layouts from canvas objects with rotation support
+31. **updateTableLayout** - Update existing table layouts with partial field updates and rotation support
+32. **deleteTableLayout** - Archive table layouts (soft delete) to preserve data integrity while hiding from views
+33. **createLandingPage** - Create custom landing pages for events with password protection and styling
+34. **updateLandingPage** - Update existing landing pages with automatic slug regeneration and validation
+35. **deleteLandingPage** - Delete landing pages with proper cleanup
+36. **submitContactForm** - Submit support requests with attachments and email notifications
 
 ## Prerequisites
 
@@ -6239,6 +6240,195 @@ The `moveTable` function includes several safety features:
 - **Comprehensive Logging**: Creates detailed audit trail for all operations
 
 ---
+
+## Testing the checkEmailExists Function
+
+### Function Details
+
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/checkEmailExists`
+- **Type**: Firebase Cloud Function (onCall)
+- **Authentication**: Not required (public function)
+- **Method**: POST
+- **Content-Type**: application/json
+
+### Purpose
+
+The `checkEmailExists` function checks if an email address already exists in Firebase Auth and provides additional context about the user. This is useful for company creation flows where users need to know if they can use an existing email or should choose a different one.
+
+### Request Body
+
+```json
+{
+  "data": {
+    "email": "user@example.com"
+  }
+}
+```
+
+### Validation Rules
+
+- **email**: Required, must be a valid email format
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "email": "user@example.com",
+    "existsInAuth": true,
+    "existsInFirestore": true,
+    "emailVerified": true,
+    "displayName": "John Doe",
+    "uid": "abc123def456",
+    "businessMode": true,
+    "companyIds": ["company1", "company2"],
+    "message": "Email exists in the system. You can use this email to create a company or choose a different one."
+  }
+}
+```
+
+### Response Fields
+
+- **email**: The email address that was checked
+- **existsInAuth**: Boolean indicating if the email exists in Firebase Auth
+- **existsInFirestore**: Boolean indicating if the user document exists in Firestore
+- **emailVerified**: Boolean indicating if the email is verified in Firebase Auth
+- **displayName**: Display name from Firebase Auth (if exists)
+- **uid**: Firebase Auth UID (if exists)
+- **businessMode**: Boolean indicating if user is in business mode (if exists in Firestore)
+- **companyIds**: Array of company IDs the user is associated with (if exists in Firestore)
+- **message**: Human-readable message explaining the status
+
+### Error Responses
+
+#### Validation Error
+```json
+{
+  "success": false,
+  "error": "Validation error: \"email\" must be a valid email"
+}
+```
+
+#### General Error
+```json
+{
+  "success": false,
+  "error": "Failed to check email existence. Please try again."
+}
+```
+
+### Use Cases
+
+1. **Company Creation Flow**: Check if admin email already exists before creating company
+2. **User Registration**: Validate email availability before account creation
+3. **Account Linking**: Determine if user should be linked to existing account or create new one
+4. **Email Verification Status**: Check if existing user has verified their email
+
+### Example Workflows
+
+#### Scenario 1: Email Exists and Verified
+```json
+// Request
+{
+  "data": {
+    "email": "john@company.com"
+  }
+}
+
+// Response
+{
+  "success": true,
+  "data": {
+    "email": "john@company.com",
+    "existsInAuth": true,
+    "existsInFirestore": true,
+    "emailVerified": true,
+    "displayName": "John Smith",
+    "uid": "user123",
+    "businessMode": true,
+    "companyIds": ["comp1"],
+    "message": "Email exists in the system. You can use this email to create a company or choose a different one."
+  }
+}
+```
+
+#### Scenario 2: Email Available
+```json
+// Request
+{
+  "data": {
+    "email": "newuser@company.com"
+  }
+}
+
+// Response
+{
+  "success": true,
+  "data": {
+    "email": "newuser@company.com",
+    "existsInAuth": false,
+    "existsInFirestore": false,
+    "emailVerified": false,
+    "displayName": "",
+    "uid": null,
+    "businessMode": false,
+    "companyIds": [],
+    "message": "Email is available for use."
+  }
+}
+```
+
+### Integration with Company Creation
+
+This function is typically used before calling `createCompanyWithAdmin`:
+
+1. User enters email in company creation form
+2. Call `checkEmailExists` to check availability
+3. If email exists, show option to use existing account or change email
+4. If email is available, proceed with company creation
+5. Call `createCompanyWithAdmin` with the chosen email
+
+### Flutter Integration Example
+
+```dart
+Future<Map<String, dynamic>?> checkEmailExists(String email) async {
+  try {
+    final callable = FirebaseFunctions.instance.httpsCallable('checkEmailExists');
+    final result = await callable.call({
+      'email': email,
+    });
+    
+    return result.data;
+  } catch (e) {
+    print('Error checking email existence: $e');
+    return null;
+  }
+}
+
+// Usage in UI
+void checkEmail() async {
+  final result = await checkEmailExists('user@example.com');
+  if (result != null && result['success'] == true) {
+    final data = result['data'];
+    if (data['existsInAuth'] == true) {
+      // Show dialog: "Email exists. Use existing account or change email?"
+    } else {
+      // Email is available, proceed with company creation
+    }
+  }
+}
+```
+
+### Key Features
+
+- **No Authentication Required**: Can be called without user login
+- **Comprehensive Data**: Returns both Auth and Firestore information
+- **User-Friendly Messages**: Provides clear guidance for next steps
+- **Error Handling**: Graceful handling of validation and system errors
+- **Performance Optimized**: Efficient queries with proper error handling
+
+----
 
 ## Testing the createCompanyWithAdmin Function
 

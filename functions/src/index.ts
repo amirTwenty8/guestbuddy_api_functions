@@ -35,6 +35,7 @@ export const revokeUserSessions = authApi.revokeUserSessions;
 export const createAccount = authApi.createAccount;
 export const verifyEmail = authApi.verifyEmail; // Added for verifyEmail API
 export const resendVerificationEmail = authApi.resendVerificationEmail; // Added for resendVerificationEmail API
+export const checkEmailExists = authApi.checkEmailExists; // Added for checkEmailExists API
 
 // Companies API
 export const createCompanyWithAdmin = companiesApi.createCompanyWithAdmin;
