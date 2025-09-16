@@ -25,10 +25,16 @@ const createCompanyWithAdminSchema = Joi.object({
   imageUrl: Joi.string().optional().allow(''), // Will be Firebase Storage URL
   venueImages: Joi.array().items(Joi.string()).optional().default([]), // Array of Firebase Storage URLs
   address: Joi.string().required().min(1).max(200),
+  city: Joi.string().required().min(1).max(100), // Company city
   companyNumber: Joi.string().required().min(1).max(50), // VAT number
   country: Joi.string().required().min(1).max(100),
   description: Joi.string().optional().allow('').max(500),
   website: Joi.string().uri().optional().allow(''),
+  openHours: Joi.object().optional().pattern(Joi.string(), Joi.object({
+    open: Joi.string().optional().allow(''),
+    close: Joi.string().optional().allow(''),
+    openHours: Joi.boolean().optional()
+  })),
   
   // Admin User Information
   userFirstName: Joi.string().required().min(1).max(50),
@@ -36,7 +42,9 @@ const createCompanyWithAdminSchema = Joi.object({
   userEmail: Joi.string().email().required(),
   phoneNumber: Joi.string().required().min(8).max(20), // Flexible phone number format
   birthDate: Joi.string().required().pattern(/^\d{4}-\d{2}-\d{2}$/), // YYYY-MM-DD format
-  city: Joi.string().required().min(1).max(100),
+  userAddress: Joi.string().required().min(1).max(200), // User's personal address
+  userCity: Joi.string().required().min(1).max(100), // User's city
+  userCountry: Joi.string().required().min(1).max(100), // User's country
   password: Joi.string().required().min(8).max(128),
   
   // Terms
@@ -50,10 +58,12 @@ interface CreateCompanyWithAdminData {
   imageUrl?: string; // Firebase Storage URL for company logo
   venueImages?: string[]; // Array of Firebase Storage URLs for venue images
   address: string;
+  city: string;
   companyNumber: string;
   country: string;
   description?: string;
   website?: string;
+  openHours?: Record<string, any>;
   
   // Admin User Information
   userFirstName: string;
@@ -61,7 +71,9 @@ interface CreateCompanyWithAdminData {
   userEmail: string;
   phoneNumber: string;
   birthDate: string;
-  city: string;
+  userAddress: string;
+  userCity: string;
+  userCountry: string;
   password: string;
   terms: boolean;
 }
@@ -77,6 +89,7 @@ interface CompanyData {
   staff: string[];
   tableStaff: string[];
   address: string;
+  city: string;
   activeCustomer: boolean;
   companyNumber: string;
   country: string;
@@ -98,8 +111,9 @@ interface UserData {
   userFirstName: string;
   userLastName: string;
   birthDate: string;
-  country: string;
-  city: string;
+  userAddress: string;
+  userCity: string;
+  userCountry: string;
   emailVerified: boolean;
   createdAt: FieldValue;
   updatedAt: FieldValue;
@@ -326,16 +340,20 @@ export const createCompanyWithAdmin = onCall({
       imageUrl,
       venueImages,
       address,
+      city,
       companyNumber,
       country,
       description,
       website,
+      openHours,
       userFirstName,
       userLastName,
       userEmail,
       phoneNumber,
       birthDate,
-      city,
+      userAddress,
+      userCity,
+      userCountry,
       password,
       terms,
     } = request.data as CreateCompanyWithAdminData;
@@ -392,8 +410,8 @@ export const createCompanyWithAdmin = onCall({
     const slug = generateSlug(companyName);
     const currency = getCurrencyByCountry(country);
     
-    // Format phone number
-    const { e164Number, localNumber } = formatPhoneNumber(phoneNumber, country);
+    // Format phone number using user's country
+    const { e164Number, localNumber } = formatPhoneNumber(phoneNumber, userCountry);
 
     // Handle image uploads (if provided)
     let finalImageUrl = imageUrl || '';
@@ -470,7 +488,6 @@ export const createCompanyWithAdmin = onCall({
           email: userEmail,
           password: password,
           displayName: `${userFirstName} ${userLastName}`,
-          phoneNumber: e164Number,
           emailVerified: false,
         });
 
@@ -485,8 +502,9 @@ export const createCompanyWithAdmin = onCall({
           userFirstName: userFirstName,
           userLastName: userLastName,
           birthDate: birthDate,
-          country: country,
-          city: city,
+          userAddress: userAddress,
+          userCity: userCity,
+          userCountry: userCountry,
           emailVerified: false,
           createdAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp(),
@@ -507,11 +525,12 @@ export const createCompanyWithAdmin = onCall({
         staff: [],
         tableStaff: [],
         address: address,
+        city: city,
         activeCustomer: false,
         companyNumber: companyNumber,
         country: country,
         description: description || '',
-        openHours: {},
+        openHours: openHours || {},
         venueImages: finalVenueImages,
         website: website || '',
         createdAt: FieldValue.serverTimestamp(),
@@ -594,6 +613,13 @@ export const createCompanyWithAdmin = onCall({
       return {
         success: false,
         error: "Invalid email address format",
+      };
+    }
+    
+    if (error.code === 'auth/phone-number-already-exists') {
+      return {
+        success: false,
+        error: "A user with this phone number already exists in the system. Phone numbers can be reused, so please try again or contact support.",
       };
     }
 

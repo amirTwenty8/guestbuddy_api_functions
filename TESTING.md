@@ -6246,6 +6246,15 @@ The `moveTable` function includes several safety features:
 
 The `createCompanyWithAdmin` function creates a new company and sets up an admin user. It handles both new user creation and linking existing users to the new company.
 
+### Function Details
+
+- **Function Name**: `createCompanyWithAdmin`
+- **Type**: Callable Function
+- **URL**: `https://us-central1-guestbuddy-test-3b36d.cloudfunctions.net/createCompanyWithAdmin`
+- **Authentication**: None required (public function)
+- **Method**: POST
+- **Content-Type**: `application/json`
+
 ### Request Body
 
 #### With Images (Base64 encoded)
@@ -6258,17 +6267,57 @@ The `createCompanyWithAdmin` function creates a new company and sets up an admin
       "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD...",
       "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB..."
     ],
-    "address": "123 Main Street, City, Country",
+    "address": "123 Main Street, Berlin, Germany",
+    "city": "Berlin",
     "companyNumber": "SE123456789",
-    "country": "Sweden",
+    "country": "Germany",
     "description": "A great company description",
     "website": "https://mycompany.com",
+    "openHours": {
+      "monday": {
+        "open": "09:00",
+        "close": "17:00",
+        "openHours": true
+      },
+      "tuesday": {
+        "open": "09:00",
+        "close": "17:00",
+        "openHours": true
+      },
+      "wednesday": {
+        "open": "09:00",
+        "close": "17:00",
+        "openHours": true
+      },
+      "thursday": {
+        "open": "09:00",
+        "close": "17:00",
+        "openHours": true
+      },
+      "friday": {
+        "open": "09:00",
+        "close": "17:00",
+        "openHours": true
+      },
+      "saturday": {
+        "open": "10:00",
+        "close": "15:00",
+        "openHours": true
+      },
+      "sunday": {
+        "open": "",
+        "close": "",
+        "openHours": false
+      }
+    },
     "userFirstName": "John",
     "userLastName": "Doe",
     "userEmail": "john@mycompany.com",
     "phoneNumber": "+46123456789",
     "birthDate": "1990-01-01",
-    "city": "Stockholm",
+    "userAddress": "456 User Street, Stockholm, Sweden",
+    "userCity": "Stockholm",
+    "userCountry": "Sweden",
     "password": "SecurePassword123!",
     "terms": true
   }
@@ -6280,17 +6329,57 @@ The `createCompanyWithAdmin` function creates a new company and sets up an admin
 {
   "data": {
     "companyName": "My Awesome Company",
-    "address": "123 Main Street, City, Country",
+    "address": "123 Main Street, Berlin, Germany",
+    "city": "Berlin",
     "companyNumber": "SE123456789",
-    "country": "Sweden",
+    "country": "Germany",
     "description": "A great company description",
     "website": "https://mycompany.com",
+    "openHours": {
+      "monday": {
+        "open": "09:00",
+        "close": "17:00",
+        "openHours": true
+      },
+      "tuesday": {
+        "open": "09:00",
+        "close": "17:00",
+        "openHours": true
+      },
+      "wednesday": {
+        "open": "09:00",
+        "close": "17:00",
+        "openHours": true
+      },
+      "thursday": {
+        "open": "09:00",
+        "close": "17:00",
+        "openHours": true
+      },
+      "friday": {
+        "open": "09:00",
+        "close": "17:00",
+        "openHours": true
+      },
+      "saturday": {
+        "open": "10:00",
+        "close": "15:00",
+        "openHours": true
+      },
+      "sunday": {
+        "open": "",
+        "close": "",
+        "openHours": false
+      }
+    },
     "userFirstName": "John",
     "userLastName": "Doe",
     "userEmail": "john@mycompany.com",
     "phoneNumber": "+46123456789",
     "birthDate": "1990-01-01",
-    "city": "Stockholm",
+    "userAddress": "456 User Street, Stockholm, Sweden",
+    "userCity": "Stockholm",
+    "userCountry": "Sweden",
     "password": "SecurePassword123!",
     "terms": true
   }
