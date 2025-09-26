@@ -31,8 +31,8 @@ app.use(cors(corsOptions));
 
 // Apply authentication middleware to all routes except public endpoints
 app.use((req, res, next) => {
-  // Skip authentication for public landing page endpoint
-  if (req.path.startsWith('/public/')) {
+  // Skip authentication for public landing page endpoints
+  if (req.path.startsWith('/public/') || req.path.includes('/public/')) {
     return next();
   }
   return authenticateUser(req, res, next);
@@ -47,6 +47,8 @@ const landingPageSchemas = {
     description: Joi.string().optional().allow("").max(1000),
     eventId: Joi.string().optional().allow(""),
     guestCategoryId: Joi.string().optional().allow(""),
+    guestListId: Joi.string().optional().allow(""),
+    guestType: Joi.string().optional().valid("free", "paying").default("free"),
     showTickets: Joi.boolean().default(false),
     enableGuestRegistration: Joi.boolean().default(false),
     isPasswordProtected: Joi.boolean().default(false),
@@ -68,6 +70,8 @@ const landingPageSchemas = {
     description: Joi.string().optional().allow("").max(1000),
     eventId: Joi.string().optional().allow(""),
     guestCategoryId: Joi.string().optional().allow(""),
+    guestListId: Joi.string().optional().allow(""),
+    guestType: Joi.string().optional().valid("free", "paying"),
     showTickets: Joi.boolean().optional(),
     enableGuestRegistration: Joi.boolean().optional(),
     isPasswordProtected: Joi.boolean().optional(),
@@ -133,6 +137,24 @@ app.post("/", validateRequest(landingPageSchemas.createLandingPage), async (req,
         return res.status(400).json({
           success: false,
           error: "Guest category not found"
+        });
+      }
+    }
+
+    // Validate that guest list exists if guestListId is provided
+    if (data.guestListId && data.eventId) {
+      const guestListRef = db.collection("companies")
+        .doc(companyId)
+        .collection("events")
+        .doc(data.eventId)
+        .collection("guest_lists")
+        .doc(data.guestListId);
+      const guestListDoc = await guestListRef.get();
+      
+      if (!guestListDoc.exists) {
+        return res.status(400).json({
+          success: false,
+          error: "Guest list not found"
         });
       }
     }
@@ -206,6 +228,8 @@ app.post("/", validateRequest(landingPageSchemas.createLandingPage), async (req,
       slug,
       eventId: data.eventId || null,
       guestCategoryId: data.guestCategoryId || null,
+      guestListId: data.guestListId || null,
+      guestType: data.guestType || "free",
       showTickets: data.showTickets || false,
       enableGuestRegistration: data.enableGuestRegistration || false,
       isPasswordProtected: data.isPasswordProtected || false,
@@ -414,6 +438,34 @@ app.put("/:id", validateRequest(landingPageSchemas.updateLandingPage), async (re
       }
     }
 
+    // Validate that guest list exists if guestListId is being updated
+    if (data.guestListId !== undefined && data.guestListId !== "") {
+      // We need to check if we have an eventId (either from data or existing)
+      const eventId = data.eventId !== undefined ? data.eventId : existingData.eventId;
+      
+      if (!eventId) {
+        return res.status(400).json({
+          success: false,
+          error: "Guest list requires an associated event"
+        });
+      }
+      
+      const guestListRef = db.collection("companies")
+        .doc(companyId)
+        .collection("events")
+        .doc(eventId)
+        .collection("guest_lists")
+        .doc(data.guestListId);
+      const guestListDoc = await guestListRef.get();
+      
+      if (!guestListDoc.exists) {
+        return res.status(400).json({
+          success: false,
+          error: "Guest list not found"
+        });
+      }
+    }
+
     // Prepare the update data
     const updateData: any = {
       updatedAt: new Date().toISOString()
@@ -498,6 +550,14 @@ app.put("/:id", validateRequest(landingPageSchemas.updateLandingPage), async (re
     
     if (data.guestCategoryId !== undefined) {
       updateData.guestCategoryId = data.guestCategoryId || null;
+    }
+    
+    if (data.guestListId !== undefined) {
+      updateData.guestListId = data.guestListId || null;
+    }
+    
+    if (data.guestType !== undefined) {
+      updateData.guestType = data.guestType;
     }
     
     if (data.showTickets !== undefined) {
@@ -606,7 +666,7 @@ app.delete("/:id", async (req, res) => {
 /**
  * Get landing page by slug (public endpoint for actual landing page display)
  */
-app.get("/public/:slug", async (req, res) => {
+app.get("/public/:slug(*)", async (req, res) => {
   try {
     const {slug} = req.params;
     
@@ -658,6 +718,9 @@ app.get("/public/:slug", async (req, res) => {
       description: foundLandingPage.description,
       slug: foundLandingPage.slug,
       eventId: foundLandingPage.eventId,
+      guestCategoryId: foundLandingPage.guestCategoryId,
+      guestListId: foundLandingPage.guestListId,
+      guestType: foundLandingPage.guestType || "free",
       showTickets: foundLandingPage.showTickets,
       enableGuestRegistration: foundLandingPage.enableGuestRegistration,
       isPasswordProtected: foundLandingPage.isPasswordProtected,
@@ -673,6 +736,191 @@ app.get("/public/:slug", async (req, res) => {
     });
   } catch (error) {
     console.error("Error fetching public landing page:", error);
+    handleApiError(res, error);
+    return;
+  }
+});
+
+/**
+ * Handle guest registration from a landing page (public endpoint)
+ */
+app.post("/public/:slug(*)/register", async (req, res) => {
+  try {
+    const {slug} = req.params;
+    const {firstName, lastName, email} = req.body;
+    
+    // Validate required fields
+    if (!firstName || !lastName || !email) {
+      return res.status(400).json({
+        success: false,
+        error: "First name, last name, and email are required"
+      });
+    }
+    
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid email format"
+      });
+    }
+    
+    // Find the landing page by slug
+    const companiesSnapshot = await db.collection("companies").get();
+    
+    let foundLandingPage = null;
+    let foundCompanyId = null;
+    let foundDocRef = null;
+    
+    for (const companyDoc of companiesSnapshot.docs) {
+      const companyId = companyDoc.id;
+      const landingPagesQuery = db.collection("companies")
+        .doc(companyId)
+        .collection("landingPages")
+        .where("slug", "==", slug)
+        .where("isActive", "==", true)
+        .where("enableGuestRegistration", "==", true)
+        .limit(1);
+      
+      const landingPagesSnapshot = await landingPagesQuery.get();
+      
+      if (!landingPagesSnapshot.empty) {
+        const doc = landingPagesSnapshot.docs[0];
+        foundLandingPage = doc.data();
+        foundCompanyId = companyId;
+        foundDocRef = doc.ref;
+        break;
+      }
+    }
+    
+    if (!foundLandingPage || !foundDocRef || !foundCompanyId) {
+      return res.status(404).json({
+        success: false,
+        error: "Landing page not found or guest registration not enabled"
+      });
+    }
+    
+    // Check if landing page has an associated event
+    if (!foundLandingPage.eventId) {
+      return res.status(400).json({
+        success: false,
+        error: "Landing page must be associated with an event for guest registration"
+      });
+    }
+    
+    // Determine which guest list to use (default to 'main' if not specified)
+    const targetGuestListId = foundLandingPage.guestListId || 'main';
+    
+    // Check if guest list exists
+    const guestListRef = db.collection("companies")
+      .doc(foundCompanyId)
+      .collection("events")
+      .doc(foundLandingPage.eventId)
+      .collection("guest_lists")
+      .doc(targetGuestListId);
+    
+    const guestListDoc = await guestListRef.get();
+    if (!guestListDoc.exists) {
+      return res.status(400).json({
+        success: false,
+        error: "Target guest list not found"
+      });
+    }
+    
+    // Check if guest already exists in this guest list
+    const guestListData = guestListDoc.data();
+    const existingGuests = guestListData?.guestList || [];
+    const existingGuest = existingGuests.find((guest: any) => 
+      guest.email && guest.email.toLowerCase() === email.toLowerCase()
+    );
+    
+    if (existingGuest) {
+      return res.status(409).json({
+        success: false,
+        error: "A guest with this email is already registered"
+      });
+    }
+    
+    // Generate a unique guest ID
+    const guestId = db.collection("temp").doc().id;
+    
+    // Determine if guest should be free or paying based on landing page setting
+    const isFreeGuest = foundLandingPage.guestType === "free";
+    
+    // Get category name if category is selected
+    let categoryNames = [];
+    if (foundLandingPage.guestCategoryId) {
+      const categoryRef = db.collection("companies")
+        .doc(foundCompanyId)
+        .collection("categories")
+        .doc(foundLandingPage.guestCategoryId);
+      const categoryDoc = await categoryRef.get();
+      
+      if (categoryDoc.exists) {
+        const categoryData = categoryDoc.data();
+        const categoryName = categoryData?.name;
+        if (categoryName) {
+          categoryNames.push(categoryName);
+        }
+      }
+    }
+    
+    // Create the new guest object with only essential fields
+    const newGuest = {
+      guestId: guestId,
+      guestName: `${firstName.trim()} ${lastName.trim()}`,
+      email: email.toLowerCase().trim(),
+      categories: categoryNames,
+      comment: "Landing page registration",
+      freeCheckedIn: 0,
+      freeGuests: isFreeGuest ? 1 : 0,
+      normalCheckedIn: 0,
+      normalGuests: isFreeGuest ? 0 : 1,
+      logs: [],
+      landingPageId: foundDocRef.id
+    };
+    
+    // Add guest to the guestList array
+    const updatedGuestList = [...existingGuests, newGuest];
+    
+    // Calculate updated counters
+    const freeGuestsCount = updatedGuestList.filter((guest: any) => guest.isFree).length;
+    const normalGuestsCount = updatedGuestList.filter((guest: any) => !guest.isFree).length;
+    
+    // Update the guest list document with the new guest
+    await guestListRef.update({
+      guestList: updatedGuestList,
+      lastUpdated: new Date().toISOString(),
+      guestCount: updatedGuestList.length,
+      freeGuests: freeGuestsCount,
+      normalGuests: normalGuestsCount,
+      totalGuests: updatedGuestList.length
+    });
+    
+    // Update landing page conversion count
+    await foundDocRef.update({
+      conversions: (foundLandingPage.conversions || 0) + 1
+    });
+    
+    return res.status(201).json({
+      success: true,
+      message: `Successfully registered as ${isFreeGuest ? 'free' : 'paying'} guest for the guest list`,
+      data: {
+        guestId: guestId,
+        guestName: newGuest.guestName,
+        email: newGuest.email,
+        guestType: isFreeGuest ? 'free' : 'paying',
+        guestListName: guestListData?.name || 'Main Guest List',
+        eventId: foundLandingPage.eventId,
+        totalGuestsInList: updatedGuestList.length,
+        freeGuestsCount: freeGuestsCount,
+        normalGuestsCount: normalGuestsCount
+      }
+    });
+    
+  } catch (error) {
+    console.error("Error processing guest registration:", error);
     handleApiError(res, error);
     return;
   }
