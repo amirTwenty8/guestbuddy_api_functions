@@ -596,7 +596,7 @@ const updateTableSchema = Joi.object({
   tableTimeTo: Joi.string().optional(),
   tableBookedBy: Joi.string().optional(),
   tableEmail: Joi.string().optional(),
-  tableStaff: Joi.string().optional(),
+  tableStaff: Joi.string().optional().allow('', null),
   action: Joi.string().default('updated'),
 });
 
@@ -620,7 +620,7 @@ interface UpdateTableData {
   tableTimeTo?: string;
   tableBookedBy?: string;
   tableEmail?: string;
-  tableStaff?: string;
+  tableStaff?: string | null;
   action?: string;
 }
 
