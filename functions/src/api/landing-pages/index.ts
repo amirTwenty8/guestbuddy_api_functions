@@ -17,7 +17,7 @@ const corsOptions = {
   origin: [
     'http://localhost:3000',
     'http://localhost:3001', 
-    'https://your-frontend-domain.com', // Replace with your actual frontend domain
+    'https://portal.guestbuddy.net', // Replace with your actual frontend domain
     /\.vercel\.app$/, // Allow Vercel preview deployments
     /\.netlify\.app$/, // Allow Netlify deployments
   ],
