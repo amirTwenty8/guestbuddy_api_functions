@@ -227,8 +227,8 @@ app.post("/", validateRequest(landingPageSchemas.createLandingPage), async (req,
       description: data.description || "",
       slug,
       eventId: data.eventId || null,
-      guestCategoryId: data.guestCategoryId || null,
-      guestListId: data.guestListId || null,
+      guestCategoryId: data.guestCategoryId || "",
+      guestListId: data.guestListId || "",
       guestType: data.guestType || "free",
       showTickets: data.showTickets || false,
       enableGuestRegistration: data.enableGuestRegistration || false,
@@ -422,8 +422,8 @@ app.put("/:id", validateRequest(landingPageSchemas.updateLandingPage), async (re
       }
     }
 
-    // Validate that guest category exists if guestCategoryId is being updated
-    if (data.guestCategoryId !== undefined && data.guestCategoryId !== "") {
+    // Validate that guest category exists if guestCategoryId is being updated (and not being cleared)
+    if (data.guestCategoryId !== undefined && data.guestCategoryId !== "" && data.guestCategoryId !== null) {
       const categoryRef = db.collection("companies")
         .doc(companyId)
         .collection("categories")
@@ -438,8 +438,8 @@ app.put("/:id", validateRequest(landingPageSchemas.updateLandingPage), async (re
       }
     }
 
-    // Validate that guest list exists if guestListId is being updated
-    if (data.guestListId !== undefined && data.guestListId !== "") {
+    // Validate that guest list exists if guestListId is being updated (and not being cleared)
+    if (data.guestListId !== undefined && data.guestListId !== "" && data.guestListId !== null) {
       // We need to check if we have an eventId (either from data or existing)
       const eventId = data.eventId !== undefined ? data.eventId : existingData.eventId;
       
@@ -549,11 +549,11 @@ app.put("/:id", validateRequest(landingPageSchemas.updateLandingPage), async (re
     }
     
     if (data.guestCategoryId !== undefined) {
-      updateData.guestCategoryId = data.guestCategoryId || null;
+      updateData.guestCategoryId = data.guestCategoryId; // Allow empty string, null, or actual ID
     }
     
     if (data.guestListId !== undefined) {
-      updateData.guestListId = data.guestListId || null;
+      updateData.guestListId = data.guestListId; // Allow empty string, null, or actual ID
     }
     
     if (data.guestType !== undefined) {
